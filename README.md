@@ -1,4 +1,4 @@
-# CoreSense Risk Awareness Module (RiskAM)
+# CoreSense Risk Awareness Module (RiskAM) Ros2 Integration
 
 [CoreSense](https://coresense.eu/) is a Horizon Europe funded project that aims to develop a theory and a derived cognitive architecture for understanding in autonomous robots. A key ingredient needed to move towards true open-world autonomy in robotics is *risk awareness*: instead of trying to model the environment and all fathomable risks beforehand, which is infeasible in open-world scenarios; we make the robot itself aware of risks. This is the aim of the **CoreSense risk awareness module (RiskAM)**. You can read the full motivation, description, and prototype feature documentation of RiskAM in [CoreSense deliverable D3.5](http://zahalka.net/wp-content/uploads/2025/04/CoreSense___CS_067_D3_5__RiskAM_deliverable.pdf).
 

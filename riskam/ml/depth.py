@@ -32,9 +32,9 @@ midas.eval()
 midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
 transform = midas_transforms.dpt_transform
 
-
+# Assumes that image is in 
 def estimate_depth(
-    image_path: str,
+    image,
     human_bboxes: list[list[int]],
     gamma: float = GAMMA_EMPIRICAL_DEFAULT,
 ) -> tuple[np.ndarray, dict]:
@@ -42,7 +42,6 @@ def estimate_depth(
     Estimates depth for the given image.
     """
     # Load the image
-    image = cv2.imread(image_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     input_batch = transform(image).to(device)

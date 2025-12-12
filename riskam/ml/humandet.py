@@ -111,13 +111,12 @@ bbox_tracker = BboxTracker()
 
 
 def detect_humans(
-    image_path: str, track_bboxes: bool = True
+    image, track_bboxes: bool = True
 ) -> tuple[list[tuple[int, int, int, int]], list[float], list[bool]]:
     """
     Detects humans in the given image and whether they are likely aware of the robot,
     using YOLOv11n.
     """
-    image = cv2.imread(str(image_path))
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     results = model(image_rgb, verbose=False)

@@ -29,19 +29,13 @@ plt.rcParams.update(
 
 
 def visualize_risk(
-    image_path: str,
-    output_path: str | None,
+    image,
     bboxes: list[tuple[int, int, int, int]],
     rel_depth: np.ndarray,
     risk_features: dict[str, np.ndarray],
     risk_score: float,
     max_risk_idx: int,
 ):
-    # Load the image
-    image = cv2.imread(image_path)
-    if image is None:
-        raise FileNotFoundError(f"Image not found: {image_path}")
-
     # Add rel_depth overlay: closest pixels remain as-is and further ones fade to dark gray
     # Normalize rel_depth to range [0,1]
     norm_depth = (rel_depth - rel_depth.min()) / (
@@ -141,17 +135,7 @@ def visualize_risk(
             thickness,
             cv2.LINE_AA,
         )
-
-    if output_path is None:
-        # Show on screen
-        cv2.imshow("Risk Visualization", image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-    else:
-        # Ensure directory exists and save image
-        out_path = Path(output_path)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(out_path), image)
+    return image
 
 
 def visualize_exp_results(dataset: str) -> None:
