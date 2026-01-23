@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>riskam</name>
+  <version>0.0.1</version>
+  <description>Risk Analysis Module for Ros2 Integration of RiskAM</description>
+  <maintainer email="R.Adam-1@tudelft.nl">Richard Adam</maintainer>
+  <license>MIT</license>
+
+  <build_type>ament_python</build_type>
+  <!-- Dependencies -->
+  <exec_depend>python3</exec_depend>
+</package>

@@ -1,8 +1,61 @@
-# CoreSense Risk Awareness Module (RiskAM)
+# CoreSense Risk Awareness Module (RiskAM) Ros2 Integration
 
 [CoreSense](https://coresense.eu/) is a Horizon Europe funded project that aims to develop a theory and a derived cognitive architecture for understanding in autonomous robots. A key ingredient needed to move towards true open-world autonomy in robotics is *risk awareness*: instead of trying to model the environment and all fathomable risks beforehand, which is infeasible in open-world scenarios; we make the robot itself aware of risks. This is the aim of the **CoreSense risk awareness module (RiskAM)**. You can read the full motivation, description, and prototype feature documentation of RiskAM in [CoreSense deliverable D3.5](http://zahalka.net/wp-content/uploads/2025/04/CoreSense___CS_067_D3_5__RiskAM_deliverable.pdf).
 
 At this stage, RiskAM is a *prototype* that works for *visual navigation* and considers *risks to humans*. You can find the [full demo videos from the CoreSense RoboCup @ Home 2023 dataset here](https://drive.google.com/drive/folders/1y_I-fNZk9aPJJtIgrDVrzYYbc89Gha_P?usp=sharing).
+
+## Using RiskAM in Colcon Project
+### Install into Source Folder
+In order to use the RiskAM code in a colcon project, the RiskAM repo should be cloned into the source folder of the project:
+```bash 
+cd src #assuming you're starting in the workspace folder
+git clone git@github.com:CoreSenseEU/risk-awareness-module.git
+```
+
+> Alternatively, you can add the the repo to the .repos file to be imported with vcs. 
+
+After the code has been added to the src folder, the colcon project can be built normally with any desired flags: 
+```bash 
+colcon build 
+```
+
+### Using RiskAM in Python File: 
+Now that riskam has been installed, it can be used by python code in the colcon project. Any python file can import any functions, classes, or files from the RiskAM proejct as follows: 
+```python 
+from riskam import score
+from riskam import visualization as vis
+from riskam.ml import featextr
+```
+
+When using these functions, one can pass image objects directly into the functons as follows: 
+```python
+# Pass a cv_image to the 
+human_bboxes, rel_depth, risk_features = featextr.extract_human_risk_awareness_features(
+    cv_image,
+    depth_gamma=gamma,
+    gaze_face_offset_lower_threshold_ratio=gaze_thresh_lower,
+    gaze_face_offset_upper_threshold_ratio=gaze_thresh_upper,
+    track_bboxes=True,
+)
+
+# Compute the risk score and the index of the highest risk bbox
+risk_score, max_risk_idx = score.risk_awareness_score(
+    risk_features,
+    w_proximity=w_proximity,
+    w_gaze=w_gaze,
+    w_position=w_position,
+)
+
+# Output the visualized images(see visualisation.py for components of image)
+visualized_image = vis.visualize_risk(
+    cv_image,
+    human_bboxes,
+    rel_depth,
+    risk_features,
+    risk_score,
+    max_risk_idx,
+)
+```
 
 ## Installation & prerequisites
 The SW was implemented for Linux (tested on Ubuntu 24.04).

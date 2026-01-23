@@ -18,7 +18,7 @@ HUMAN_DETECTOR_MODEL = "hustvl/yolos-tiny"
 
 
 def extract_human_risk_awareness_features(
-    image_path: str,
+    image,
     depth_gamma: float,
     gaze_face_offset_lower_threshold_ratio: float,
     gaze_face_offset_upper_threshold_ratio: float,
@@ -31,12 +31,12 @@ def extract_human_risk_awareness_features(
 
     # Extract human bounding boxes, offset scores, and keypoints
     human_bboxes, offset_scores, keypoints_np = humandet.detect_humans(
-        image_path, track_bboxes
+        image, track_bboxes
     )
 
     # Estimate depth (MiDaS)
     rel_depth, bbox_relative_depths = depth.estimate_depth(
-        image_path, human_bboxes, gamma=depth_gamma
+        image, human_bboxes, gamma=depth_gamma
     )
 
     # Estimate gaze scores
