@@ -4,6 +4,70 @@
 
 At this stage, RiskAM is a *prototype* that works for *visual navigation* and considers *risks to humans*. You can find the [full demo videos from the CoreSense RoboCup @ Home 2023 dataset here](https://drive.google.com/drive/folders/1y_I-fNZk9aPJJtIgrDVrzYYbc89Gha_P?usp=sharing).
 
+## Using RiskAM Ros2 Package
+### Installation and Build
+In order to use the RiskAM ros2 node in a larger project, the RiskAM repo should be cloned into the source folder of the project:
+```bash 
+cd src #assuming you're starting in the workspace folder
+git clone git@github.com:CoreSenseEU/risk-awareness-module.git
+```
+
+Move back to the workspace folder and build the package with colcon: 
+```bash 
+cd ../ # Assuming you're starting in the ros_ws/src folder
+colcon build 
+```
+
+Or, to select only the packages included in this repository, use the command: 
+```bash 
+colcon build --packages-select riskam riskam_ros riskam_msgs riskam_bringup
+```
+
+### Running or Launching the Node 
+To run the node individually, run the command:
+```bash 
+ros2 run riskam_ros riskam_node.py --ros-args -p camera_topic:=/camera/topic
+```
+Where `/camera/topic` is replaced with the image topic of whatever camera package you are using(defaults to realsense)
+
+For launching the node and bagger, run the command: 
+```bash 
+ros2 run riskam_bringup riskam.launch.py run_logger:=true
+```
+
+The parameters applied in the launch file can be edited in `riskam_config.yml`, located in the config folder of the riskam_bringup package. 
+
+### Parameters
+####  riskam_node 
+- camera_topic(default to "/camera/realsense/color/image_raw")
+  - Image topic from camera output to use for risk evaluation
+- risk_weight_proximity(default to 0.7)  
+  - Weight of proximity estimate to risk score
+- risk_weight_gaze(default to 0.25) 
+  - Weight of gaze score to risk score
+- risk_weight_position(default to 0.05) 
+  - Weight of x offset score to risk score 
+- depth_gamma(default to 0.5) 
+  - parameter for gamma normalization of depth output(see [coresense deliverable](https://coresense.eu/wp-content/uploads/2025/05/CORESENSE_D3.5-Risk-Awareness-Module.pdf) for explanation)
+- gaze_bounds(default to [0.1, 0.2])
+  - Represent sensitivity to variations in gaze 
+- visualize_image(default to True)  
+  - Choose whether or not to output the image with RiskAM annotations. 
+
+#### riskam_bagger
+- bag_folder(default to "bags")
+  - name of folder which bags will be stored in
+- bag_name(default to "riskam_test")
+  - name of .mcap file 
+- tag_with_time(Default to true)
+  - Whether or not to tag the time of each risk score
+- log_image(default to true)
+  - Whether or not to add the camera output image to the bag
+- log_annotated_images(default to true)
+  - Whether or not to add the RiskAM annotated images to the bag
+- log_subscores(default to true)
+  - Whether or not to log the risk subscores(Depth, Gaze, XPose) to the bag
+
 ## Using RiskAM in Colcon Project
 ### Install into Source Folder
 In order to use the RiskAM code in a colcon project, the RiskAM repo should be cloned into the source folder of the project:

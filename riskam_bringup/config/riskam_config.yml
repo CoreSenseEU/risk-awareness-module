@@ -1,0 +1,40 @@
+# This config file contains the parameters for both the riskam_node and the realsense camera node 
+# for use in the riskam ros integration project. 
+
+# For the riskam_node, users can adjust the weight of each sub-component of score, toggle for risk 
+# visualization, along with several parameters described in the deliverable:
+# (https://coresense.eu/wp-content/uploads/2025/05/CORESENSE_D3.5-Risk-Awareness-Module.pdf)
+/riskam_node: 
+  ros__parameters: 
+    camera_topic: "/camera/camera/color/image_raw"
+    w_proximity: 0.7 
+    w_gaze: 0.25 
+    w_position: 0.05 
+    gamma: 0.5 
+    gaze_thresh: [0.1, 0.2] 
+    visualize_image: True
+
+# For the riskam_bagger node, users can adjust the location of the bag, as well as which
+# topics to bag. 
+/riskam_bagger: 
+  ros__parameters: 
+    # Filename parameters 
+    bag_folder: "bags"
+    bag_name: "riskam_test"
+    tag_with_time: true
+    # Which topics to log
+    log_images: true
+    log_annotated_images: true
+    log_subscores: true
+
+# =====================================
+#    ADD YOUR CAMERA NODE PARAMS HERE
+# =====================================
+# For example, if Using Realsense, you can use the parameters: 
+# /camera/realsense:
+#   ros__parameters: 
+#     enable_infra1: false
+#     enable_infra2: false
+#     enable_depth: true
+#     rgb_camera.color_profile: 640x480x15 
+#     depth_camera.depth_profile: 640x480x6
