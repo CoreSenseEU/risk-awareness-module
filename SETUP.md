@@ -61,8 +61,31 @@ config still works.
 ```bash
 tmux new -s claude
 cd ~/coresense/risk-awareness-module && claude remote-control
-# detach with Ctrl-b d; reattach with: tmux attach -t claude
 ```
+
+#### Tmux cheatsheet
+
+Prefix is `Ctrl-b` (press and release, then the next key).
+
+| Action                          | Keys / command                    |
+| ------------------------------- | --------------------------------- |
+| New session named `claude`      | `tmux new -s claude`              |
+| List sessions                   | `tmux ls`                         |
+| Attach to `claude`              | `tmux attach -t claude` (or `-a`) |
+| Detach (session keeps running)  | `Ctrl-b d`                        |
+| Kill session                    | `tmux kill-session -t claude`     |
+| Scroll / search output          | `Ctrl-b [` → arrows or `/pattern`, `q` to exit |
+| Rename current session          | `Ctrl-b $`                        |
+| New window (tab)                | `Ctrl-b c`                        |
+| Next / previous window          | `Ctrl-b n` / `Ctrl-b p`           |
+| Split pane vertically           | `Ctrl-b %`                        |
+| Split pane horizontally         | `Ctrl-b "`                        |
+| Switch between panes            | `Ctrl-b` then arrow key           |
+| Close current pane              | `Ctrl-b x`                        |
+
+Typical workflow: SSH in, `tmux attach -t claude` (or `new -s claude` if none),
+work, `Ctrl-b d` to detach, close SSH. Claude keeps running. If SSH drops
+mid-session, reconnect and re-attach — no state is lost.
 
 ### Option C — Fully headless (no web UI, just run a task)
 
