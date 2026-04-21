@@ -13,7 +13,9 @@ from tqdm import tqdm
 
 from riskam.data.ml_datasets import DATASETS
 from riskam.ml import featextr
+from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
 from riskam import score, visualization as vis, video
+from riskam.score import RiskScorer
 
 
 # Dir and file names/paths
@@ -26,7 +28,10 @@ PREDICTIONS_JSON_FNAME = "predictions.json"
 RAW_PREDICTIONS_JSON_FNAME = "raw_predictions.json"
 
 
-# Parameters
+# Parameters — updated for the new pipeline.
+# Note: depth-based proximity is not available in offline experiments (no depth
+# sensor data in the RoboCup 2023 dataset); proximity scores will be 0.
+# Update this grid and re-annotate the dataset for a full evaluation (T3.3/T3.4).
 RISK_SCORE_WEIGHTS = [
     {"proximity": 0.7, "gaze": 0.25, "position": 0.05},
     {"proximity": 0.475, "gaze": 0.475, "position": 0.05},
@@ -35,8 +40,8 @@ RISK_SCORE_WEIGHTS = [
     {"proximity": 0.45, "gaze": 0.45, "position": 0.1},
     {"proximity": 0.25, "gaze": 0.65, "position": 0.1},
 ]
-DEPTH_NORM_GAMMAS = [0.5, 0.75, 1.0]
-GAZE_THRESHOLDS = [[0.1, 0.2], [0.15, 0.3]]
+GAZE_SIGMA_YAW_VALUES = [0.2, 0.3, 0.5]
+GAZE_SIGMA_PITCH_VALUES = [0.3, 0.5]
 
 # pylint: disable=no-member
 
@@ -202,25 +207,35 @@ def run_experiment(
 
     times = []
 
+    scorer = RiskScorer()
+
     # Perform the risk awareness analysis
     for img_path in tqdm(sorted(img_dir.iterdir())):
         # Skip if there is no ground truth for the image
         if img_path.name not in ground_truth:
             continue
 
-        # Extract bboxes, relative depths, and risk features
+        # Load image with OpenCV (featextr expects a BGR ndarray)
+        cv_image = cv2.imread(str(img_path))
+        if cv_image is None:
+            continue
+
+        # Extract bboxes, depth visualisation, and risk features.
+        # depth_image_m=None because the offline dataset has no depth sensor data;
+        # proximity scores will be 0 until depth-enabled data is available (T3.4).
         t_start = time()
-        human_bboxes, rel_depth, risk_features = (
+        human_bboxes, depth_viz, risk_features, track_ids = (
             featextr.extract_human_risk_awareness_features(
-                img_path,
-                depth_gamma=params["gamma"],
-                gaze_face_offset_lower_threshold_ratio=params["gaze_lower"],
-                gaze_face_offset_upper_threshold_ratio=params["gaze_upper"],
-                track_bboxes=True,
+                cv_image,
+                depth_image_m=None,
+                gaze_sigma_yaw=params["gaze_sigma_yaw"],
+                gaze_sigma_pitch=params["gaze_sigma_pitch"],
+                gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
+                track_bboxes=False,
             )
         )
         # Compute the risk score and the index of the highest risk bbox
-        risk_score, max_risk_idx = score.risk_awareness_score(
+        risk_score, max_risk_idx, _ = scorer.score(
             risk_features,
             w_proximity=params["w_prox"],
             w_gaze=params["w_gaze"],
@@ -238,16 +253,10 @@ def run_experiment(
         # Visualize & store the risk visualization (what the model sees)
         if output_images:
             risk_img_output_path = risk_img_output_dir / Path(img_path).name
-
-            vis.visualize_risk(
-                img_path,
-                risk_img_output_path,
-                human_bboxes,
-                rel_depth,
-                risk_features,
-                risk_score,
-                max_risk_idx,
+            annotated = vis.visualize_risk(
+                cv_image, human_bboxes, depth_viz, risk_features, risk_score, max_risk_idx
             )
+            cv2.imwrite(str(risk_img_output_path), annotated)
     # Calculate the average time per image
     avg_time = sum(times) / len(times)
     metrics["avg_time"] = avg_time
@@ -313,17 +322,16 @@ def run_experiments(
     Run the experiments for the given dataset across all parameter configs.
     """
     for risk_weights in RISK_SCORE_WEIGHTS:
-        for gamma in DEPTH_NORM_GAMMAS:
-            for gaze_thresh in GAZE_THRESHOLDS:
+        for sigma_yaw in GAZE_SIGMA_YAW_VALUES:
+            for sigma_pitch in GAZE_SIGMA_PITCH_VALUES:
                 run_experiment(
                     dataset,
                     {
                         "w_prox": risk_weights["proximity"],
                         "w_gaze": risk_weights["gaze"],
                         "w_pos": risk_weights["position"],
-                        "gamma": gamma,
-                        "gaze_lower": gaze_thresh[0],
-                        "gaze_upper": gaze_thresh[1],
+                        "gaze_sigma_yaw": sigma_yaw,
+                        "gaze_sigma_pitch": sigma_pitch,
                     },
                     run,
                     output_images,

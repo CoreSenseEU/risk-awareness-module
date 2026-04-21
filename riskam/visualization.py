@@ -31,26 +31,31 @@ plt.rcParams.update(
 def visualize_risk(
     image,
     bboxes: list[tuple[int, int, int, int]],
-    rel_depth: np.ndarray,
+    depth_viz: np.ndarray | None,
     risk_features: dict[str, np.ndarray],
     risk_score: float,
     max_risk_idx: int,
 ):
-    # Add rel_depth overlay: closest pixels remain as-is and further ones fade to dark gray
-    # Normalize rel_depth to range [0,1]
-    norm_depth = (rel_depth - rel_depth.min()) / (
-        rel_depth.max() - rel_depth.min() + 1e-6
-    )
-    # Create a dark gray overlay image
-    overlay = np.full_like(image, (50, 50, 50))
-    # Soften overlay: reduce effect of depth on blending (e.g., only half as strong)
-    soft_weight = norm_depth * 0.85
-    # Blend each pixel with the softer weight
-    image = (
-        image.astype(np.float32) * (1 - soft_weight[..., None])
-        + overlay.astype(np.float32) * soft_weight[..., None]
-    )
-    image = np.clip(image, 0, 255).astype(np.uint8)
+    """Overlay depth, bounding boxes, and risk score on the RGB image.
+
+    Parameters
+    ----------
+    depth_viz : np.ndarray (H, W) uint8 or None
+        Closer = brighter map produced by ``depth.depth_to_visualization()``.
+        When None (no depth available), the depth overlay is skipped.
+    """
+    if depth_viz is not None:
+        # Normalise to [0,1] — depth_viz is already uint8 in [0,255].
+        norm_depth = depth_viz.astype(np.float32) / 255.0
+        # Distant pixels fade to dark gray; close pixels remain vivid.
+        overlay = np.full_like(image, (50, 50, 50))
+        # Invert: depth_viz=255 means close=bright; we want distant=dark overlay.
+        soft_weight = (1.0 - norm_depth) * 0.85
+        image = (
+            image.astype(np.float32) * (1.0 - soft_weight[..., None])
+            + overlay.astype(np.float32) * soft_weight[..., None]
+        )
+        image = np.clip(image, 0, 255).astype(np.uint8)
 
     # Draw bounding boxes with color based on gaze score
     for i, (x1, y1, x2, y2) in enumerate(bboxes):

@@ -1,40 +1,69 @@
-# This config file contains the parameters for both the riskam_node and the realsense camera node 
-# for use in the riskam ros integration project. 
+# RiskAM configuration
+#
+# Edit this file to tune RiskAM for your deployment environment.
+# All parameters can also be overridden at launch time via ROS 2 argument syntax.
 
-# For the riskam_node, users can adjust the weight of each sub-component of score, toggle for risk 
-# visualization, along with several parameters described in the deliverable:
-# (https://coresense.eu/wp-content/uploads/2025/05/CORESENSE_D3.5-Risk-Awareness-Module.pdf)
-/riskam_node: 
-  ros__parameters: 
+/riskam_node:
+  ros__parameters:
+    # ── Camera topics ─────────────────────────────────────────────────────────
     camera_topic: "/camera/camera/color/image_raw"
-    w_proximity: 0.7 
-    w_gaze: 0.25 
-    w_position: 0.05 
-    gamma: 0.5 
-    gaze_thresh: [0.1, 0.2] 
-    visualize_image: True
+    depth_topic: "/camera/camera/depth/image_rect_raw"
+    cmd_vel_topic: "/cmd_vel"
 
-# For the riskam_bagger node, users can adjust the location of the bag, as well as which
-# topics to bag. 
-/riskam_bagger: 
-  ros__parameters: 
-    # Filename parameters 
+    # ── Risk weights (must sum to 1.0) ────────────────────────────────────────
+    w_proximity: 0.7
+    w_gaze: 0.25
+    w_position: 0.05
+
+    # ── Proximity / depth ─────────────────────────────────────────────────────
+    # Safety distance in metres. Persons at or beyond d_safe score 0 on proximity.
+    d_safe: 1.5
+
+    # ── Gaze (2-D head pose) ──────────────────────────────────────────────────
+    # Gaussian σ for yaw deviation (normalised by inter-eye distance).
+    gaze_sigma_yaw: 0.3
+    # Gaussian σ for pitch deviation from the expected frontal nose-eye ratio.
+    gaze_sigma_pitch: 0.5
+    # Expected (nose.y − eye_mid.y) / inter_eye_dist for a frontal face.
+    gaze_frontal_pitch_ratio: 0.7
+
+    # ── Temporal aggregation ──────────────────────────────────────────────────
+    n_frames_aggregate: 5
+    # Crowd penalty coefficient α: scene_risk *= (1 + α·log(1 + n_extra))
+    crowd_alpha: 0.1
+
+    # ── Visualisation ─────────────────────────────────────────────────────────
+    visualize_image: true
+
+    # ── Synchroniser slop (seconds) ───────────────────────────────────────────
+    sync_slop: 0.1
+
+/riskam_bagger:
+  ros__parameters:
+    # ── Output file ───────────────────────────────────────────────────────────
     bag_folder: "bags"
     bag_name: "riskam_test"
     tag_with_time: true
-    # Which topics to log
+
+    # ── Topics to record ──────────────────────────────────────────────────────
     log_images: true
     log_annotated_images: true
     log_subscores: true
 
-# =====================================
-#    ADD YOUR CAMERA NODE PARAMS HERE
-# =====================================
-# For example, if Using Realsense, you can use the parameters: 
-# /camera/realsense:
-#   ros__parameters: 
-#     enable_infra1: false
-#     enable_infra2: false
+    # ── Topic names (must match riskam_node and your camera remappings) ───────
+    topic_camera_image: "/camera/camera/color/image_raw"
+    topic_annotated_image: "/riskam/annotated_image"
+    topic_risk_score: "/riskam/risk_score"
+    topic_gaze: "/riskam/gaze"
+    topic_depth: "/riskam/depth"
+    topic_x_pose: "/riskam/x_pose"
+
+# ── Example RealSense camera parameters ──────────────────────────────────────
+# Uncomment and adjust if you launch the camera node from this config:
+#
+# /camera/camera:
+#   ros__parameters:
 #     enable_depth: true
-#     rgb_camera.color_profile: 640x480x15 
-#     depth_camera.depth_profile: 640x480x6
+#     enable_color: true
+#     rgb_camera.color_profile: "640x480x15"
+#     depth_module.depth_profile: "640x480x15"

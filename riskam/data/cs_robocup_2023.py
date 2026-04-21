@@ -16,13 +16,11 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import Dataset
-from transformers import (
-    AutoImageProcessor,
-    AutoModel,
-    YolosImageProcessor,
-    YolosForObjectDetection,
-)
 from tqdm import tqdm
+
+# transformers is an optional dependency used only by the offline dataset
+# preparation utilities below.  It is imported lazily so the live RiskAM
+# pipeline (ROS node, score, depth) does not require it.
 
 from riskam.data.paths import (
     CS_ROBOCUP_2023_ML_DIR,
@@ -134,6 +132,7 @@ def extract_features() -> None:
     CS_ROBOCUP_2023_ML_FEAT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load pretrained feature extractor and model
+    from transformers import AutoImageProcessor, AutoModel  # lazy import
 
     model_name = "google/vit-base-patch16-224"  # Vision Transformer model
     feature_extractor = AutoImageProcessor.from_pretrained(model_name)
@@ -165,6 +164,8 @@ def detect_humans_in_frames() -> None:
     Go over the CoreSense Robocup dataset and for each frame, extract the number of humans in it
     and the corresponding bounding boxes.
     """
+
+    from transformers import YolosImageProcessor, YolosForObjectDetection  # lazy
 
     processor = YolosImageProcessor.from_pretrained("hustvl/yolos-tiny")
     model = YolosForObjectDetection.from_pretrained("hustvl/yolos-tiny")

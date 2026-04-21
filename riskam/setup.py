@@ -12,25 +12,19 @@ setup(
     packages=find_packages(),
     # Copied requirements.txt
     install_requires=[
-        "accelerate",
-        "bitsandbytes",
-        "datasets",
         "joblib",
         "matplotlib",
-        "mediapipe",
+        "numpy",
         "opencv-contrib-python-headless",
         "opencv-python",
-        "numpy<2.0.0",
         "pillow",
         "PyYAML",
         "seaborn",
         "scikit-learn",
         "setuptools",
-        "timm",
         "torch",
         "torchvision",
         "tqdm",
-        "transformers",
-        "ultralytics"
+        "ultralytics",
     ],
 )

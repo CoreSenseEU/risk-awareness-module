@@ -1,279 +1,256 @@
 """
 ml.humandet
 
-Human detection for risk awareness.
+Human detection, tracking, and per-person feature extraction for risk awareness.
+
+Changes from the prototype:
+  - BboxTracker replaced by Ultralytics ByteTrack (model.track with persist=True).
+    ByteTrack uses motion-aware matching and handles the 3–7 Hz frame rates seen
+    in live deployment.
+  - Gaze estimation upgraded from a 1-D horizontal-symmetry heuristic (which
+    incorrectly scored people looking up/down as "aware") to a 2-D head-pose
+    score using yaw and pitch derived from YOLO11-Pose keypoints.
+  - Per-track velocity estimation: centroid depth is tracked over a short window
+    to detect people approaching vs. moving away.
 """
 
-from pathlib import Path
+import math
+from collections import deque
+from time import monotonic
 
-import torch
-import numpy as np
 import cv2
+import numpy as np
+import torch
 from ultralytics import YOLO
-import matplotlib.pyplot as plt
 
 from riskam.data.paths import ML_MODELS_DIR
 
-# OpenCV throws no-member linting errors
 # pylint: disable=no-member
 
-# Check if GPU is available
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Load YOLO Pose model on GPU
 YOLO_POSE_MODEL_PATH = ML_MODELS_DIR / "yolo11n-pose.pt"
 model = YOLO(YOLO_POSE_MODEL_PATH, verbose=False)
 
+# ── Gaze head-pose defaults ──────────────────────────────────────────────────
 
-FACE_OFFSET_LOWER_THRESHOLD_RATIO_EMPIRICAL_DEFAULT = 0.1
-FACE_OFFSET_UPPER_THRESHOLD_RATIO_EMPIRICAL_DEFAULT = 0.2
+# Gaussian σ for yaw (normalised by inter-eye distance).
+# yaw_offset=SIGMA_YAW → gaze score drops to ~0.6.
+SIGMA_YAW_DEFAULT = 0.3
 
+# Gaussian σ for pitch deviation from the expected frontal ratio.
+SIGMA_PITCH_DEFAULT = 0.5
 
-class BboxTracker:
-    """
-    A simple bounding box tracker for tracking humans across frames, introducing
-    spatio-temporal continuity.
-    """
+# Expected (nose.y − eye_midpoint.y) / inter_eye_dist when facing the camera.
+# Empirically ~0.7 for a typical frontal view at neutral pitch.
+FRONTAL_PITCH_RATIO_DEFAULT = 0.7
 
-    IOU_THRESHOLD = 0.5
-    CONSECUTIVE_FRAMES_THRESHOLD = 3
+# ── Velocity tracking ────────────────────────────────────────────────────────
 
-    def __init__(self, iou_threshold=0.5, min_consecutive_frames=3):
-        self.iou_threshold = iou_threshold
-        self.min_consecutive_frames = min_consecutive_frames
-        self.tracked_bboxes = {}
-        self.next_bbox_id = 0
+# Number of frames to keep per track for velocity estimation.
+VELOCITY_WINDOW = 8
 
-    def iou(self, box1, box2):
-        """
-        Computes the Intersection over Union (IoU) score between two bounding boxes.
-        """
-        inter_left = max(box1[0], box2[0])
-        inter_top = max(box1[1], box2[1])
-        inter_right = min(box1[2], box2[2])
-        inter_bottom = min(box1[3], box2[3])
+# Approach velocity at which the approach score saturates at 1 (m/s).
+MAX_APPROACH_VEL_MS = 1.0
 
-        inter_area = max(0, inter_right - inter_left) * max(0, inter_bottom - inter_top)
-        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
-        return inter_area / float(box1_area + box2_area - inter_area)
-
-    def update(self, detections: list[tuple[int, int, int, int]]) -> list[bool]:
-        """
-        Updates the tracked bounding boxes with the new detections.
-        """
-
-        updated_tracked = {}
-        bboxes_confirmed = [False] * len(detections)
-
-        # Associate new detections with tracked boxes
-        for d, det in enumerate(detections):
-            matched_id = None
-            max_iou = 0
-
-            for bbox_id, bbox_info in self.tracked_bboxes.items():
-                iou_score = self.iou(det, bbox_info["coords"])
-                if iou_score > self.iou_threshold and iou_score > max_iou:
-                    matched_id = bbox_id
-                    max_iou = iou_score
-
-            if matched_id is not None:
-                # Update existing bbox
-                updated_tracked[matched_id] = {
-                    "coords": det,
-                    "count": self.tracked_bboxes[matched_id]["count"] + 1,
-                }
-
-                # If the bbox has been confirmed for enough consecutive frames, mark as confirmed
-                if updated_tracked[matched_id]["count"] >= self.min_consecutive_frames:
-                    bboxes_confirmed[d] = True
-
-            else:
-                # Add new bbox
-                updated_tracked[self.next_bbox_id] = {"coords": det, "count": 1}
-                self.next_bbox_id += 1
-
-        # Keep only updated tracked boxes
-        self.tracked_bboxes = updated_tracked
-
-        # Return bboxes confirmed by sufficient consecutive detections
-        confirmed_bboxes = [
-            bbox_info["coords"]
-            for bbox_info in self.tracked_bboxes.values()
-            if bbox_info["count"] >= self.min_consecutive_frames
-        ]
-
-        return bboxes_confirmed
+# Module-level velocity history: track_id → deque of (timestamp_s, depth_m).
+_velocity_history: dict[int, deque] = {}
 
 
-bbox_tracker = BboxTracker()
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def detect_humans(
-    image, track_bboxes: bool = True
-) -> tuple[list[tuple[int, int, int, int]], list[float], list[bool]]:
-    """
-    Detects humans in the given image and whether they are likely aware of the robot,
-    using YOLOv11n.
+    image: np.ndarray,
+    track_bboxes: bool = True,
+) -> tuple[list, list[float], np.ndarray | None, list[int | None]]:
+    """Detect humans and return bounding boxes, x-offset scores, keypoints, and track IDs.
+
+    Parameters
+    ----------
+    image : np.ndarray  (BGR, as returned by cv_bridge)
+    track_bboxes : bool
+        When True, run ByteTrack so that detections carry persistent IDs.
+
+    Returns
+    -------
+    human_bboxes : list of [x1, y1, x2, y2]
+    bbox_offset_scores : list[float]
+        Per-person x-offset scores in [0, 1] (image-centre proximity).
+    keypoints_np : np.ndarray (N, 17, 2) or None
+    track_ids : list[int | None]
+        ByteTrack ID per person, or None if tracking is disabled / unavailable.
     """
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    results = model(image_rgb, verbose=False)
-
-    human_bboxes = []
-    keypoints_np = None
-
-    # Extract detections
-    for result in results:
-
-        # Append the bounding box
-        if len(result.boxes.xyxy) == 0:
-            continue  # Skip if no humans detected
-
-        # Extract human bounding boxes
-        human_bboxes = result.boxes.xyxy.cpu().tolist()
-
-        # Extract keypoints (only x, y coords)
-        keypoints = result.keypoints
-        keypoints_np = keypoints.data[..., :2].cpu().numpy()
-
-        # Confirm the detected bounding boxes, filter out the unconfirmed ones
-        if track_bboxes:
-            bboxes_confirmed = bbox_tracker.update(human_bboxes)
-
-            human_bboxes = [
-                bbox
-                for bbox, confirmed in zip(human_bboxes, bboxes_confirmed)
-                if confirmed
-            ]
-            keypoints_np = keypoints_np[bboxes_confirmed, :, :]
-
-    # Calculate bbox offsets from the center
-    if len(image.shape) == 3:
-        _, image_width, _ = image.shape  # Color image (3D)
+    if track_bboxes:
+        results = model.track(image_rgb, verbose=False, persist=True)
     else:
-        _, image_width = image.shape  # Grayscale image (2D)
-    human_bbox_offsets = [
-        _bbox_offset_score(bbox, image_width) for bbox in human_bboxes
-    ]
+        results = model(image_rgb, verbose=False)
 
-    return human_bboxes, human_bbox_offsets, keypoints_np
+    human_bboxes: list = []
+    keypoints_np: np.ndarray | None = None
+    track_ids: list[int | None] = []
+
+    for result in results:
+        if result.boxes is None or len(result.boxes.xyxy) == 0:
+            continue
+
+        human_bboxes = result.boxes.xyxy.cpu().tolist()
+        keypoints_np = result.keypoints.data[..., :2].cpu().numpy()
+
+        if track_bboxes and result.boxes.id is not None:
+            track_ids = [int(tid) for tid in result.boxes.id.cpu().tolist()]
+        else:
+            track_ids = [None] * len(human_bboxes)
+
+    image_h, image_w = image.shape[:2]
+    bbox_offset_scores = [_bbox_offset_score(b, image_w) for b in human_bboxes]
+
+    return human_bboxes, bbox_offset_scores, keypoints_np, track_ids
 
 
 def gaze_scores(
-    keypoints_np: np.ndarray,
-    face_offset_lower_threshold_ratio: float = FACE_OFFSET_LOWER_THRESHOLD_RATIO_EMPIRICAL_DEFAULT,
-    face_offset_upper_threshold_ratio: float = FACE_OFFSET_UPPER_THRESHOLD_RATIO_EMPIRICAL_DEFAULT,
+    keypoints_np: np.ndarray | None,
+    sigma_yaw: float = SIGMA_YAW_DEFAULT,
+    sigma_pitch: float = SIGMA_PITCH_DEFAULT,
+    frontal_pitch_ratio: float = FRONTAL_PITCH_RATIO_DEFAULT,
 ) -> list[float]:
+    """Compute 2-D head-pose gaze scores for each detected person.
+
+    Returns a list of floats in [0, 1]:
+      1 = person is facing the camera directly (both yaw and pitch near zero)
+      0 = person is turned away or pitching strongly up/down
     """
-    Detects the gaze scores for each person in the image.
+    if keypoints_np is None or len(keypoints_np) == 0:
+        return []
+    return [
+        _headpose_gaze(keypoints_np[i], sigma_yaw, sigma_pitch, frontal_pitch_ratio)
+        for i in range(len(keypoints_np))
+    ]
+
+
+def update_velocity(
+    track_ids: list[int | None],
+    depths_m: list[float],
+) -> None:
+    """Record the current depth observation for each tracked person.
+
+    Call this once per frame after obtaining per-bbox depths.
     """
-    gaze_scores_all_bboxes = []
+    now = monotonic()
+    active = set()
+    for tid, d in zip(track_ids, depths_m):
+        if tid is None:
+            continue
+        if tid not in _velocity_history:
+            _velocity_history[tid] = deque(maxlen=VELOCITY_WINDOW)
+        _velocity_history[tid].append((now, d))
+        active.add(tid)
 
-    if keypoints_np is not None:
-        for i in range(len(keypoints_np)):
-            gaze_scores_all_bboxes.append(
-                detect_gaze(
-                    keypoints_np,
-                    i,
-                    face_offset_lower_threshold_ratio,
-                    face_offset_upper_threshold_ratio,
-                )
-            )
-
-    return gaze_scores_all_bboxes
+    # Prune IDs that have not been seen for a while (not in current frame).
+    stale = [k for k in _velocity_history if k not in active]
+    for k in stale:
+        del _velocity_history[k]
 
 
-def detect_gaze(
-    keypoints_np: np.ndarray,
-    human_idx: int,
-    face_offset_lower_threshold_ratio: float = FACE_OFFSET_LOWER_THRESHOLD_RATIO_EMPIRICAL_DEFAULT,
-    face_offset_upper_threshold_ratio: float = FACE_OFFSET_UPPER_THRESHOLD_RATIO_EMPIRICAL_DEFAULT,
+def approach_scores(track_ids: list[int | None]) -> list[float]:
+    """Return a per-person approach score in [0, 1].
+
+    0.5  → stationary or unknown
+    > 0.5 → approaching (higher = faster approach)
+    < 0.5 → moving away
+    """
+    return [_approach_score(tid) for tid in track_ids]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _headpose_gaze(
+    kpts: np.ndarray,
+    sigma_yaw: float,
+    sigma_pitch: float,
+    frontal_pitch_ratio: float,
 ) -> float:
+    """2-D head-pose gaze score for a single person.
+
+    COCO keypoint indices used:
+      0  nose
+      1  left_eye  (person's left → appears on the RIGHT in the image)
+      2  right_eye (person's right → appears on the LEFT in the image)
+
+    Yaw  (horizontal head turn):
+      nose is displaced horizontally from the eye midpoint when the head turns.
+      Normalised by inter-eye distance → Gaussian around 0.
+
+    Pitch (up/down tilt):
+      Ratio of (nose.y − eye_midpoint.y) / inter_eye_dist.
+      Positive when nose is below eye level (normal for a frontal view).
+      Deviations from frontal_pitch_ratio → Gaussian penalty.
     """
-    Detects whether the person at the given index is looking at the robot.
-    """
-    # Zero keypoints detected -> no human looking at the robot
-    if keypoints_np.shape[0] == 0:
+    if kpts.shape[0] < 3:
         return 0.0
 
-    kpts = keypoints_np[human_idx]
+    nose = kpts[0]
+    left_eye = kpts[1]
+    right_eye = kpts[2]
 
-    if kpts.shape[0] == 0:  # Handle cases where keypoints exist but are empty
-        # print(f"Skipping person {person_id + 1} due to missing keypoints")
+    # Treat all-zero keypoints as undetected.
+    if np.all(nose == 0) or np.all(left_eye == 0) or np.all(right_eye == 0):
         return 0.0
 
-    # Extract keypoints
-    nose = kpts[0]  # Nose (x, y)
-    left_shoulder = kpts[5] if kpts.shape[0] > 5 else None
-    right_shoulder = kpts[6] if kpts.shape[0] > 6 else None
-    left_eye = kpts[1] if kpts.shape[0] > 1 else None
-    right_eye = kpts[2] if kpts.shape[0] > 2 else None
+    eye_mid = (left_eye + right_eye) / 2.0
+    inter_eye_dist = np.linalg.norm(right_eye - left_eye)
 
-    # # ====== METHOD 1: SHOULDER-BASED (Preferred if shoulders are visible) ======
-    # if left_shoulder is not None and right_shoulder is not None:
-    #     # Compute shoulder midpoint (acts as "neck" reference)
-    #     neck_midpoint = (left_shoulder + right_shoulder) / 2
-    #     shoulder_width = np.linalg.norm(right_shoulder - left_shoulder)
+    if inter_eye_dist < 1.0:  # degenerate / unreliable
+        return 0.0
 
-    #     # Compute head offset (nose vs. shoulders)
-    #     head_offset = abs(nose[0] - neck_midpoint[0])
-    #     normalized_offset = (
-    #         head_offset / shoulder_width if shoulder_width > 0 else float("inf")
-    #     )
+    yaw_offset = (nose[0] - eye_mid[0]) / inter_eye_dist
+    pitch_ratio = (nose[1] - eye_mid[1]) / inter_eye_dist
+    pitch_deviation = pitch_ratio - frontal_pitch_ratio
 
-    #     looking_at_robot = normalized_offset < HEAD_OFFSET_THRESHOLD_RATIO
-    #     # print(
-    #     #     f"Person {person_id+1} (Shoulder Method) Normalized Head Offset: {normalized_offset:.2f} | Looking: {looking_at_robot}"
-    #     # )
+    yaw_score = math.exp(-(yaw_offset**2) / (2.0 * sigma_yaw**2))
+    pitch_score = math.exp(-(pitch_deviation**2) / (2.0 * sigma_pitch**2))
 
-    # ====== METHOD 2: FACE-BASED (Fallback if shoulders are occluded) ======
-    if left_eye is not None and right_eye is not None:
-        # Compute face width
-        face_width = np.linalg.norm(right_eye - left_eye)
-
-        # Use eye midpoint as the reference point instead of shoulders
-        face_midpoint = (left_eye + right_eye) / 2
-        face_offset = abs(nose[0] - face_midpoint[0])
-
-        # Normalize by face width
-        normalized_face_offset = (
-            face_offset / face_width if face_width > 0 else float("inf")
-        )
-
-        looking_at_robot = min(
-            1,
-            max(
-                0,
-                (face_offset_upper_threshold_ratio - normalized_face_offset)
-                / face_offset_lower_threshold_ratio,
-            ),
-        )
-        # print(
-        #     f"Person {person_id+1} (Face Method) Normalized Face Offset: {normalized_face_offset:.2f} | Looking: {looking_at_robot}"
-        # )
-
-    else:
-        # No reliable keypoints available
-        # print(f"Person {person_id+1} skipped due to missing keypoints.")
-        looking_at_robot = 0.0
-
-    return looking_at_robot
+    return float(yaw_score * pitch_score)
 
 
-def _bbox_offset_score(bbox: tuple[int, int, int, int], image_width: int) -> float:
+def _approach_score(track_id: int | None) -> float:
+    """Estimate approach score for one track from its depth history.
+
+    Returns 0.5 when there is insufficient history.
     """
-    Calculates the offset score for the given bounding box.
-    """
+    if track_id is None:
+        return 0.5
+
+    hist = _velocity_history.get(track_id)
+    if hist is None or len(hist) < 2:
+        return 0.5
+
+    times = np.array([t for t, _ in hist])
+    depths = np.array([d for _, d in hist])
+    dt = times[-1] - times[0]
+    if dt < 0.05:  # too short a window
+        return 0.5
+
+    # Fit linear slope: negative slope = depth decreasing = person approaching.
+    slope = float(np.polyfit(times - times[0], depths, 1)[0])
+
+    # slope < 0 → approaching → high score
+    # Clamp velocity to ±MAX_APPROACH_VEL_MS, then map to [0, 1].
+    clamped = max(-MAX_APPROACH_VEL_MS, min(MAX_APPROACH_VEL_MS, slope))
+    return float(0.5 - clamped / (2.0 * MAX_APPROACH_VEL_MS))
+
+
+def _bbox_offset_score(bbox: list, image_width: int) -> float:
+    """X-offset score: 1 at image centre, 0 at the edges."""
     x1, _, x2, _ = bbox
-    bbox_center_x = (x1 + x2) / 2
-    img_center_x = image_width / 2
-
-    # Compute normalized offset from the motion axis
-    offset = abs(bbox_center_x - img_center_x) / img_center_x
-
-    # Compute motion-axis risk weighting (1 - offset^2)
-    offset_score = 1 - offset**2
-
-    return offset_score
+    center_x = (x1 + x2) / 2.0
+    img_cx = image_width / 2.0
+    offset = abs(center_x - img_cx) / img_cx
+    return float(1.0 - offset**2)
