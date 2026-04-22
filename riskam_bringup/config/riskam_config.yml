@@ -61,6 +61,7 @@
     topic_gaze: "/riskam/gaze"
     topic_depth: "/riskam/depth"
     topic_x_pose: "/riskam/x_pose"
+    topic_approach: "/riskam/approach"
 
 # ── Example RealSense camera parameters ──────────────────────────────────────
 # Uncomment and adjust if you launch the camera node from this config:

@@ -135,6 +135,7 @@ class RiskAM(Node):
         self.gaze_pub = self.create_publisher(FloatStamped, "/riskam/gaze", 10)
         self.depth_pub = self.create_publisher(FloatStamped, "/riskam/depth", 10)
         self.x_pose_pub = self.create_publisher(FloatStamped, "/riskam/x_pose", 10)
+        self.approach_pub = self.create_publisher(FloatStamped, "/riskam/approach", 10)
         self.annotated_img_pub = self.create_publisher(Image, "/riskam/annotated_image", 10)
         self.diag_pub = self.create_publisher(DiagnosticArray, "/riskam/diagnostics", 10)
 
@@ -230,8 +231,9 @@ class RiskAM(Node):
             proximity_sub = float(np.max(risk_features["proximity"]))
             gaze_sub = float(np.max(risk_features["gaze"]))
             x_pose_sub = float(np.max(risk_features["x_offset"]))
+            approach_sub = float(np.max(risk_features["approach"]))
         else:
-            proximity_sub = gaze_sub = x_pose_sub = 0.0
+            proximity_sub = gaze_sub = x_pose_sub = approach_sub = 0.0
 
         # ── Visualisation ─────────────────────────────────────────────────────
         if self.visualize_image:
@@ -246,6 +248,7 @@ class RiskAM(Node):
         self.depth_pub.publish(_float_stamped(header, proximity_sub))
         self.gaze_pub.publish(_float_stamped(header, gaze_sub))
         self.x_pose_pub.publish(_float_stamped(header, x_pose_sub))
+        self.approach_pub.publish(_float_stamped(header, approach_sub))
 
         if self.visualize_image:
             self.annotated_img_pub.publish(self.bridge.cv2_to_imgmsg(annotated))

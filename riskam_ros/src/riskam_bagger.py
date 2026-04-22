@@ -40,6 +40,7 @@ class RiskBagger(Node):
         self.declare_parameter("topic_gaze", "/riskam/gaze")
         self.declare_parameter("topic_depth", "/riskam/depth")
         self.declare_parameter("topic_x_pose", "/riskam/x_pose")
+        self.declare_parameter("topic_approach", "/riskam/approach")
 
         p = self.get_parameter
         bag_folder = p("bag_folder").value
@@ -55,6 +56,7 @@ class RiskBagger(Node):
         t_gaze = p("topic_gaze").value
         t_depth = p("topic_depth").value
         t_x_pose = p("topic_x_pose").value
+        t_approach = p("topic_approach").value
 
         # ── Build output path ─────────────────────────────────────────────────
         if tag_with_time:
@@ -81,6 +83,7 @@ class RiskBagger(Node):
             (t_gaze, float_type, log_subscores),
             (t_depth, float_type, log_subscores),
             (t_x_pose, float_type, log_subscores),
+            (t_approach, float_type, log_subscores),
         ]
 
         self._active_topics: set[str] = set()
@@ -112,6 +115,7 @@ class RiskBagger(Node):
         _sub_float(t_gaze)
         _sub_float(t_depth)
         _sub_float(t_x_pose)
+        _sub_float(t_approach)
 
         self.get_logger().info(f"RiskBagger writing to {bag_uri}")
 
