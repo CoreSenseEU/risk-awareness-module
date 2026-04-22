@@ -15,6 +15,7 @@ from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
 from riskam.ml import featextr, humandet
 from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
+from riskam.ml.subscores import FrameInputs
 from riskam import score, visualization as vis, video
 from riskam.score import RiskScorer
 
@@ -176,10 +177,12 @@ def run_experiment(
         depth_index = CSRobocup2023DepthIndex(run)
         if not depth_index:
             print(
-                f"[warn] no depth frames found for '{run}'; "
-                "proximity sub-score will be 0. "
-                "Run scripts/extract_ros2_dataset.py to extract depth."
+                f"[error] no depth frames found for '{run}'; RiskAM's "
+                "supported minimum is RGB + absolute depth. "
+                "Run scripts/extract_ros2_dataset.py to extract depth, "
+                "then re-run this experiment."
             )
+            return
 
     # Establish the params slug to identify the experiment
     params_slug = _params_slug(params)
@@ -235,27 +238,32 @@ def run_experiment(
         if cv_image is None:
             continue
 
-        # Load the nearest-neighbour depth frame (if available).
+        # Load the nearest-neighbour depth frame. RGB + depth is RiskAM's
+        # supported minimum, so a missing depth frame means this RGB frame
+        # cannot be evaluated and is skipped (with a per-experiment tally
+        # via `skipped_no_depth`).
         depth_image_m = depth_index.load_for_rgb(img_path) if depth_index else None
+        if depth_image_m is None:
+            metrics["skipped_no_depth"] = metrics.get("skipped_no_depth", 0) + 1
+            continue
 
-        # Extract bboxes, depth visualisation, and risk features.
-        # track_bboxes=True enables ByteTrack, which is required for the
-        # approach sub-score (per-track velocity estimation).
+        # Extract risk features via the sub-score contract.
+        # track_bboxes=True enables ByteTrack, required for the approach
+        # sub-score (per-track velocity estimation). cmd_vel is None offline
+        # until T3.3 adds bag-backed velocity replay; x_offset will therefore
+        # report FALLBACK status (centre-offset heuristic).
         t_start = time()
-        human_bboxes, depth_viz, risk_features, track_ids = (
-            featextr.extract_human_risk_awareness_features(
-                cv_image,
-                depth_image_m=depth_image_m,
-                gaze_sigma_yaw=params["gaze_sigma_yaw"],
-                gaze_sigma_pitch=params["gaze_sigma_pitch"],
-                gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
-                track_bboxes=True,
-            )
+        result = featextr.extract(
+            FrameInputs(rgb=cv_image, depth_m=depth_image_m, cmd_vel=None),
+            gaze_sigma_yaw=params["gaze_sigma_yaw"],
+            gaze_sigma_pitch=params["gaze_sigma_pitch"],
+            gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
+            track_bboxes=True,
         )
         # Compute the risk score and the index of the highest risk bbox
         risk_score, max_risk_idx, _ = scorer.score(
-            risk_features,
-            track_ids=track_ids,
+            result.features,
+            track_ids=result.track_ids,
             w_proximity=params["w_prox"],
             w_gaze=params["w_gaze"],
             w_position=params["w_pos"],
@@ -274,11 +282,23 @@ def run_experiment(
         if output_images:
             risk_img_output_path = risk_img_output_dir / Path(img_path).name
             annotated = vis.visualize_risk(
-                cv_image, human_bboxes, depth_viz, risk_features, risk_score, max_risk_idx
+                cv_image,
+                result.human_bboxes,
+                result.depth_viz,
+                result.features,
+                risk_score,
+                max_risk_idx,
             )
             cv2.imwrite(str(risk_img_output_path), annotated)
     # Calculate the average time per image
-    avg_time = sum(times) / len(times)
+    if times:
+        avg_time = sum(times) / len(times)
+    else:
+        print(
+            "[warn] no frames were processed for this experiment "
+            "(every frame either missing from ground truth or lacking depth)."
+        )
+        avg_time = 0.0
     metrics["avg_time"] = avg_time
 
     # Save the results
@@ -320,15 +340,22 @@ def run_experiment(
     )
     print("Results:")
     print(f"    - Total images: {metrics['total']}")
-    print(
-        f"    - Correct predictions: {metrics['correct']} ({metrics['correct']/metrics['total']*100:.2f}%)"
-    )
-    print(
-        f"    - Underestimates: {metrics['underestimate']} ({metrics['underestimate']/metrics['total']*100:.2f}%)"
-    )
-    print(
-        f"    - Overestimates: {metrics['overestimate']} ({metrics['overestimate']/metrics['total']*100:.2f}%)"
-    )
+    if metrics.get("skipped_no_depth"):
+        print(f"    - Skipped (no matching depth frame): {metrics['skipped_no_depth']}")
+    total = metrics["total"]
+    if total > 0:
+        print(
+            f"    - Correct predictions: {metrics['correct']} "
+            f"({metrics['correct']/total*100:.2f}%)"
+        )
+        print(
+            f"    - Underestimates: {metrics['underestimate']} "
+            f"({metrics['underestimate']/total*100:.2f}%)"
+        )
+        print(
+            f"    - Overestimates: {metrics['overestimate']} "
+            f"({metrics['overestimate']/total*100:.2f}%)"
+        )
     print(f"    - Average time per image: {avg_time:.2f}s")
 
 

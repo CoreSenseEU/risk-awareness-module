@@ -19,9 +19,13 @@ Improvements over the prototype:
   T2.4       — publishes diagnostic_msgs/DiagnosticArray with per-frame timing
                and detection counts.
   T3.2       — weight parameters are validated on startup.
+  T3.3.3     — sub-score input-availability contract. RGB + depth are required;
+               cmd_vel is optional with a centre-offset fallback. The
+               ``compute_*`` functions live in riskam.ml.subscores; per-frame
+               status (ACTIVE / FALLBACK / UNAVAILABLE) flows through to the
+               diagnostics topic so degraded sub-scores are visible.
 """
 
-import math
 import threading
 from time import monotonic
 
@@ -43,6 +47,7 @@ from riskam.ml.humandet import (
     SIGMA_PITCH_DEFAULT,
     SIGMA_YAW_DEFAULT,
 )
+from riskam.ml.subscores import FrameInputs, RobotVelocity
 from riskam.score import (
     CROWD_ALPHA_DEFAULT,
     N_FRAMES_AGGREGATE,
@@ -192,34 +197,29 @@ class RiskAM(Node):
         depth_raw = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
         depth_image_m = depth_mod.depth_mm_to_m(depth_raw)
 
-        # ── Feature extraction ────────────────────────────────────────────────
-        human_bboxes, depth_viz, risk_features, track_ids = (
-            featextr.extract_human_risk_awareness_features(
-                cv_image,
-                depth_image_m=depth_image_m,
-                d_safe=self.d_safe,
-                gaze_sigma_yaw=self.gaze_sigma_yaw,
-                gaze_sigma_pitch=self.gaze_sigma_pitch,
-                gaze_frontal_pitch_ratio=self.gaze_frontal_pitch_ratio,
-                track_bboxes=True,
-            )
+        # ── Optional input snapshot ───────────────────────────────────────────
+        with self._cmd_vel_lock:
+            cmd_vel_twist = self._cmd_vel
+        cmd_vel = (
+            RobotVelocity.from_twist(cmd_vel_twist)
+            if cmd_vel_twist is not None
+            else None
         )
 
-        # ── Path-aware x-offset using cmd_vel ─────────────────────────────────
-        if risk_features is not None:
-            with self._cmd_vel_lock:
-                cmd_vel = self._cmd_vel
-            if cmd_vel is not None:
-                h, w = cv_image.shape[:2]
-                path_scores = [
-                    _path_proximity_score(b, w, h, cmd_vel) for b in human_bboxes
-                ]
-                risk_features["x_offset"] = np.array(path_scores, dtype=float)
+        # ── Feature extraction via the sub-score contract ─────────────────────
+        result = featextr.extract(
+            FrameInputs(rgb=cv_image, depth_m=depth_image_m, cmd_vel=cmd_vel),
+            d_safe=self.d_safe,
+            gaze_sigma_yaw=self.gaze_sigma_yaw,
+            gaze_sigma_pitch=self.gaze_sigma_pitch,
+            gaze_frontal_pitch_ratio=self.gaze_frontal_pitch_ratio,
+            track_bboxes=True,
+        )
 
         # ── Risk scoring ──────────────────────────────────────────────────────
         risk_score, max_risk_idx, per_person = self.scorer.score(
-            risk_features,
-            track_ids=track_ids,
+            result.features,
+            track_ids=result.track_ids,
             w_proximity=self.w_proximity,
             w_gaze=self.w_gaze,
             w_position=self.w_position,
@@ -227,18 +227,23 @@ class RiskAM(Node):
         )
 
         # ── Sub-score extraction for publication ──────────────────────────────
-        if risk_features is not None:
-            proximity_sub = float(np.max(risk_features["proximity"]))
-            gaze_sub = float(np.max(risk_features["gaze"]))
-            x_pose_sub = float(np.max(risk_features["x_offset"]))
-            approach_sub = float(np.max(risk_features["approach"]))
+        if result.features is not None:
+            proximity_sub = float(np.max(result.features["proximity"]))
+            gaze_sub = float(np.max(result.features["gaze"]))
+            x_pose_sub = float(np.max(result.features["x_offset"]))
+            approach_sub = float(np.max(result.features["approach"]))
         else:
             proximity_sub = gaze_sub = x_pose_sub = approach_sub = 0.0
 
         # ── Visualisation ─────────────────────────────────────────────────────
         if self.visualize_image:
             annotated = vis.visualize_risk(
-                cv_image, human_bboxes, depth_viz, risk_features, risk_score, max_risk_idx
+                cv_image,
+                result.human_bboxes,
+                result.depth_viz,
+                result.features,
+                risk_score,
+                max_risk_idx,
             )
 
         # ── Publish ───────────────────────────────────────────────────────────
@@ -258,23 +263,50 @@ class RiskAM(Node):
         self._publish_diagnostics(
             header,
             elapsed_ms=elapsed_ms,
-            n_persons=len(human_bboxes),
-            n_tracks=sum(1 for t in track_ids if t is not None),
+            n_persons=len(result.human_bboxes),
+            n_tracks=sum(1 for t in result.track_ids if t is not None),
             risk_score=risk_score,
+            subscore_status=result.subscore_status,
+            subscore_reasons=result.subscore_reasons,
         )
 
-    def _publish_diagnostics(self, header, elapsed_ms, n_persons, n_tracks, risk_score):
+    def _publish_diagnostics(
+        self,
+        header,
+        elapsed_ms,
+        n_persons,
+        n_tracks,
+        risk_score,
+        subscore_status: dict,
+        subscore_reasons: dict,
+    ):
         status = DiagnosticStatus()
         status.name = "riskam"
         status.hardware_id = "riskam_node"
-        status.level = DiagnosticStatus.OK
-        status.message = "OK"
+        # Any sub-score not ACTIVE bumps the diagnostic level so operators
+        # notice degraded modes on the /diagnostics bus.
+        degraded = [
+            n for n, s in subscore_status.items() if s.value != "active"
+        ]
+        status.level = DiagnosticStatus.OK if not degraded else DiagnosticStatus.WARN
+        status.message = (
+            "OK"
+            if not degraded
+            else f"degraded sub-scores: {', '.join(sorted(degraded))}"
+        )
         status.values = [
             KeyValue(key="frame_time_ms", value=f"{elapsed_ms:.1f}"),
             KeyValue(key="n_persons", value=str(n_persons)),
             KeyValue(key="n_tracks", value=str(n_tracks)),
             KeyValue(key="risk_score", value=f"{risk_score:.4f}"),
         ]
+        for name, st in subscore_status.items():
+            status.values.append(KeyValue(key=f"subscore_{name}", value=st.value))
+            reason = subscore_reasons.get(name, "")
+            if reason:
+                status.values.append(
+                    KeyValue(key=f"subscore_{name}_reason", value=reason)
+                )
         arr = DiagnosticArray()
         arr.header = header
         arr.status = [status]
@@ -295,43 +327,6 @@ def _float_stamped(header, value: float) -> FloatStamped:
     msg.header = header
     msg.score = float(value)
     return msg
-
-
-def _path_proximity_score(
-    bbox: list,
-    image_width: int,
-    image_height: int,
-    cmd_vel: Twist,
-) -> float:
-    """Path-aware position sub-score using robot velocity.
-
-    Projects the human's image-position onto the robot's instantaneous motion
-    direction.  Falls back to centre-offset heuristic when the robot is nearly
-    stationary.
-
-    Coordinate convention (ROS REP-103):
-      vx > 0 → forward → dangerous zone is image centre (norm_x ≈ 0)
-      vy > 0 → left     → in the camera image, the robot's left side appears
-                           on the LEFT (negative norm_x)
-    """
-    vx = cmd_vel.linear.x
-    vy = cmd_vel.linear.y
-    speed = math.hypot(vx, vy)
-
-    cx = (bbox[0] + bbox[2]) / 2.0
-    norm_x = (cx - image_width / 2.0) / (image_width / 2.0)  # −1…+1
-
-    if speed < 0.05:
-        # Robot nearly stationary — fall back to centre-offset heuristic.
-        return float(1.0 - norm_x**2)
-
-    # Lateral fraction of motion: -vy because +vy=left maps to neg norm_x.
-    lat_fraction = -vy / speed  # expected dangerous zone in norm_x coords
-
-    # Gaussian centred on lat_fraction, σ≈0.71 in normalised image space.
-    delta = norm_x - lat_fraction
-    score = math.exp(-(delta**2) / 0.5)
-    return float(np.clip(score, 0.0, 1.0))
 
 
 def main(args=None):

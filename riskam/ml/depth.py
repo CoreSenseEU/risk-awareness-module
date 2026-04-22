@@ -34,6 +34,36 @@ def depth_mm_to_m(depth_image_mm: np.ndarray) -> np.ndarray:
     return out
 
 
+def extract_bbox_depths(
+    depth_image_m: np.ndarray,
+    human_bboxes: list,
+    d_safe: float = D_SAFE_DEFAULT,
+) -> list[float]:
+    """Extract a single representative depth (metres) per bounding box.
+
+    Uses the 10th-percentile within the bbox as the "closest valid surface";
+    falls back to ``d_safe`` when no valid depth is available in the region.
+    """
+    depths: list[float] = []
+    for bbox in human_bboxes:
+        x1, y1, x2, y2 = (int(c) for c in bbox)
+        region = depth_image_m[y1:y2, x1:x2]
+        valid = region[(region >= DEPTH_MIN_M) & np.isfinite(region)]
+        if valid.size > 0:
+            depths.append(float(np.percentile(valid, DEPTH_PERCENTILE)))
+        else:
+            depths.append(d_safe)
+    return depths
+
+
+def depths_to_proximities(
+    depths_m: list[float],
+    d_safe: float = D_SAFE_DEFAULT,
+) -> list[float]:
+    """Linear proximity from depth: 1 at the camera, 0 at/beyond ``d_safe``."""
+    return [float(np.clip(1.0 - d / d_safe, 0.0, 1.0)) for d in depths_m]
+
+
 def extract_bbox_proximities(
     depth_image_m: np.ndarray,
     human_bboxes: list,
@@ -55,17 +85,10 @@ def extract_bbox_proximities(
         Proximity score in [0, 1] per bounding box.
         1 = person is at the camera, 0 = person is at or beyond d_safe.
     """
-    scores = []
-    for bbox in human_bboxes:
-        x1, y1, x2, y2 = (int(c) for c in bbox)
-        region = depth_image_m[y1:y2, x1:x2]
-        valid = region[(region >= DEPTH_MIN_M) & np.isfinite(region)]
-        if valid.size > 0:
-            depth_m = float(np.percentile(valid, DEPTH_PERCENTILE))
-        else:
-            depth_m = d_safe  # no valid depth → treat as outside safety zone
-        scores.append(float(np.clip(1.0 - depth_m / d_safe, 0.0, 1.0)))
-    return scores
+    return depths_to_proximities(
+        extract_bbox_depths(depth_image_m, human_bboxes, d_safe=d_safe),
+        d_safe=d_safe,
+    )
 
 
 def depth_to_visualization(

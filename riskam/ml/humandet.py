@@ -65,8 +65,8 @@ _velocity_history: dict[int, deque] = {}
 def detect_humans(
     image: np.ndarray,
     track_bboxes: bool = True,
-) -> tuple[list, list[float], np.ndarray | None, list[int | None]]:
-    """Detect humans and return bounding boxes, x-offset scores, keypoints, and track IDs.
+) -> tuple[list, np.ndarray | None, list[int | None]]:
+    """Detect humans and return bounding boxes, keypoints, and track IDs.
 
     Parameters
     ----------
@@ -77,8 +77,6 @@ def detect_humans(
     Returns
     -------
     human_bboxes : list of [x1, y1, x2, y2]
-    bbox_offset_scores : list[float]
-        Per-person x-offset scores in [0, 1] (image-centre proximity).
     keypoints_np : np.ndarray (N, 17, 2) or None
     track_ids : list[int | None]
         ByteTrack ID per person, or None if tracking is disabled / unavailable.
@@ -106,10 +104,7 @@ def detect_humans(
         else:
             track_ids = [None] * len(human_bboxes)
 
-    image_h, image_w = image.shape[:2]
-    bbox_offset_scores = [_bbox_offset_score(b, image_w) for b in human_bboxes]
-
-    return human_bboxes, bbox_offset_scores, keypoints_np, track_ids
+    return human_bboxes, keypoints_np, track_ids
 
 
 def gaze_scores(
@@ -257,10 +252,3 @@ def _approach_score(track_id: int | None) -> float:
     return float(0.5 - clamped / (2.0 * MAX_APPROACH_VEL_MS))
 
 
-def _bbox_offset_score(bbox: list, image_width: int) -> float:
-    """X-offset score: 1 at image centre, 0 at the edges."""
-    x1, _, x2, _ = bbox
-    center_x = (x1 + x2) / 2.0
-    img_cx = image_width / 2.0
-    offset = abs(center_x - img_cx) / img_cx
-    return float(1.0 - offset**2)

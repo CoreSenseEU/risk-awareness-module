@@ -4,7 +4,9 @@ test_run_with_video.py
 Runs the risk awareness model on a sequence of images, creating
 1) a video from the raw images and 2) a video with the risk score overlay.
 
-Note: depth proximity scores are 0 in this offline mode (no depth sensor data).
+RiskAM requires RGB + absolute depth; the depth frame nearest to each RGB
+frame is loaded via CSRobocup2023DepthIndex. Frames with no matching depth
+are skipped.
 """
 
 import argparse
@@ -17,8 +19,10 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 
 # pylint: disable=wrong-import-position
+from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
 from riskam.ml import featextr
+from riskam.ml.subscores import FrameInputs
 from riskam import video, visualization as vis
 from riskam.score import RiskScorer
 
@@ -41,8 +45,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     IMG_DIR = DATASETS[args.dataset]["img_dir"]
+    depth_index: CSRobocup2023DepthIndex | None = None
     if args.dataset == "cs_robocup_2023":
         IMG_DIR = IMG_DIR / args.run / "rgb"
+        depth_index = CSRobocup2023DepthIndex(args.run)
+        if not depth_index:
+            sys.exit(
+                f"[error] no depth frames found for '{args.run}'. "
+                "Run scripts/extract_ros2_dataset.py first."
+            )
 
     VIDEO_DIR.mkdir(exist_ok=True, parents=True)
     risk_score_dir = RISK_SCORE_MASTER_DIR / args.dataset / args.run
@@ -54,24 +65,29 @@ if __name__ == "__main__":
         cv_image = cv2.imread(str(img_path))
         if cv_image is None:
             continue
+        depth_image_m = depth_index.load_for_rgb(img_path) if depth_index else None
+        if depth_image_m is None:
+            continue
 
-        human_bboxes, depth_viz, risk_features, track_ids = (
-            featextr.extract_human_risk_awareness_features(
-                cv_image,
-                depth_image_m=None,
-                track_bboxes=True,
-            )
+        result = featextr.extract(
+            FrameInputs(rgb=cv_image, depth_m=depth_image_m, cmd_vel=None),
+            track_bboxes=True,
         )
         risk_score, max_risk_idx, _ = scorer.score(
-            risk_features,
-            track_ids=track_ids,
+            result.features,
+            track_ids=result.track_ids,
             w_proximity=DEFAULT_W_PROX,
             w_gaze=DEFAULT_W_GAZE,
             w_position=DEFAULT_W_XPOS,
         )
 
         annotated = vis.visualize_risk(
-            cv_image, human_bboxes, depth_viz, risk_features, risk_score, max_risk_idx
+            cv_image,
+            result.human_bboxes,
+            result.depth_viz,
+            result.features,
+            risk_score,
+            max_risk_idx,
         )
         out_path = risk_score_dir / Path(img_path).name
         cv2.imwrite(str(out_path), annotated)
