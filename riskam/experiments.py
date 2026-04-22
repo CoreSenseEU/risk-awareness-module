@@ -13,9 +13,11 @@ from tqdm import tqdm
 
 from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
+from riskam.eval_metrics import classification_report
 from riskam.ml import featextr, humandet
 from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
 from riskam.ml.subscores import FrameInputs
+from riskam.provenance import reproducibility_metadata
 from riskam import score, visualization as vis, video
 from riskam.score import RiskScorer
 
@@ -218,6 +220,10 @@ def run_experiment(
 
     raw_predictions = {}
 
+    # Parallel arrays for per-class / regression metrics aggregated post-loop.
+    y_true: list[int] = []
+    y_pred_continuous: list[float] = []
+
     times = []
 
     scorer = RiskScorer()
@@ -272,11 +278,14 @@ def run_experiment(
         times.append(time() - t_start)
 
         # Evaluate the prediction
-        eval_result = _eval_prediction(ground_truth[img_path.name], risk_score)
+        gt_class = ground_truth[img_path.name]
+        eval_result = _eval_prediction(gt_class, risk_score)
         metrics["total"] += 1
         metrics[eval_result] += 1
         predictions[eval_result].append(img_path.name)
         raw_predictions[img_path.name] = risk_score
+        y_true.append(gt_class)
+        y_pred_continuous.append(risk_score)
 
         # Visualize & store the risk visualization (what the model sees)
         if output_images:
@@ -300,6 +309,14 @@ def run_experiment(
         )
         avg_time = 0.0
     metrics["avg_time"] = avg_time
+
+    # T3.3.4: expanded classification + regression metrics.
+    metrics["classification"] = classification_report(y_true, y_pred_continuous)
+
+    # T3.3.9: reproducibility metadata — stamp the environment that produced
+    # these results so a future run can be traced back to its code state.
+    metrics["provenance"] = reproducibility_metadata()
+    metrics["params"] = dict(params)
 
     # Save the results
     results_path = experiment_dir / RESULTS_JSON_FNAME
@@ -355,6 +372,13 @@ def run_experiment(
         print(
             f"    - Overestimates: {metrics['overestimate']} "
             f"({metrics['overestimate']/total*100:.2f}%)"
+        )
+        cls = metrics["classification"]
+        print(
+            f"    - Macro F1: {cls['macro']['f1']:.3f} | "
+            f"Accuracy: {cls['micro']['f1']:.3f} | "
+            f"MAE: {cls['regression']['mae']:.3f} | "
+            f"RMSE: {cls['regression']['rmse']:.3f}"
         )
     print(f"    - Average time per image: {avg_time:.2f}s")
 
