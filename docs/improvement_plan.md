@@ -166,39 +166,41 @@ The following stack-level changes are safe:
 
 ## 6. Prioritised Roadmap
 
+**Status legend.** The *Status* column tracks implementation progress so this document remains reusable as the plan evolves. Values: **Done** — item fully implemented and on `main`; **Partial** — item partially addressed (see note); **Pending** — not yet started. Last reviewed: 2026-04-22 against commit `4fc6711` ("Tier 1 (SamXL feedback) and Tier 2 (further quality improvement) updates from the improvement plan implemented").
+
 ### Tier 1 — Critical correctness and performance (do first)
 
-| # | Item | Effort | Impact | Notes |
-|---|------|--------|--------|-------|
-| T1.1 | Replace MiDaS with RealSense depth topic | Medium | Very high | Eliminates F1, speeds up pipeline, removes numpy pin |
-| T1.2 | Depth-calibrated proximity score (§3.2) | Low | High | Physically interpretable, requires T1.1 |
-| T1.3 | Fix gaze with 2D head pose (yaw + pitch) | Medium | High | Eliminates F2, publishable algorithm change |
-| T1.4 | Replace custom tracker with ByteTrack | Low | High | Eliminates F3, one Ultralytics flag change |
-| T1.5 | Async frame processing | Medium | High | Fixes F3 performance root cause |
-| T1.6 | Remove global state from `score.py` | Low | Medium | Engineering prerequisite for tests |
+| # | Item | Effort | Impact | Status | Notes |
+|---|------|--------|--------|--------|-------|
+| T1.1 | Replace MiDaS with RealSense depth topic | Medium | Very high | **Done** | Eliminates F1, speeds up pipeline, removes numpy pin. `riskam/ml/depth.py` now operates on absolute metres; MiDaS code and the `numpy<2.0.0` pin are gone. |
+| T1.2 | Depth-calibrated proximity score (§3.2) | Low | High | **Done** | Physically interpretable, requires T1.1. `extract_bbox_proximities` uses `max(0, 1 − depth/d_safe)` with configurable `d_safe`. |
+| T1.3 | Fix gaze with 2D head pose (yaw + pitch) | Medium | High | **Done** | Eliminates F2, publishable algorithm change. `humandet._headpose_gaze` combines yaw and pitch Gaussians from YOLO11-Pose keypoints. |
+| T1.4 | Replace custom tracker with ByteTrack | Low | High | **Done** | Eliminates F3, one Ultralytics flag change. `humandet.detect_humans` calls `model.track(..., persist=True)` and returns track IDs. |
+| T1.5 | Async frame processing | Medium | High | **Done** | Fixes F3 performance root cause. `riskam_node` stores the latest synced color+depth pair and processes it in a dedicated worker thread. |
+| T1.6 | Remove global state from `score.py` | Low | Medium | **Done** | Engineering prerequisite for tests. Replaced module-level `prev_risks` with `RiskScorer` class instantiated by the ROS node. |
 
 ### Tier 2 — Significant functionality and quality
 
-| # | Item | Effort | Impact | Notes |
-|---|------|--------|--------|-------|
-| T2.1 | Path-aware trajectory sub-score | Medium-High | High | Eliminates F4; subscribe to `/cmd_vel` |
-| T2.2 | Human velocity tracking (per ByteTrack ID) | Medium | High | Addresses F6 |
-| T2.3 | Multi-person risk aggregation (§3.3) | Low-Medium | Medium | Publishable component |
-| T2.4 | Diagnostic topic publication | Low | Medium | Useful for deployment and benchmarking |
-| T2.5 | Remove dead code (LLaVA, autoencoder, old gaze.py) | Low | Medium | Code hygiene |
-| T2.6 | Unit and integration test suite | Medium | Medium | Required for deliverable quality |
+| # | Item | Effort | Impact | Status | Notes |
+|---|------|--------|--------|--------|-------|
+| T2.1 | Path-aware trajectory sub-score | Medium-High | High | **Done** | Eliminates F4; subscribe to `/cmd_vel`. `riskam_node._path_proximity_score` projects the bbox centre onto the robot's instantaneous motion direction, with graceful fallback to centre-offset when stationary. |
+| T2.2 | Human velocity tracking (per ByteTrack ID) | Medium | High | **Done** | Addresses F6. `humandet.update_velocity` + `approach_scores` maintain a per-track depth history and emit an approach score. |
+| T2.3 | Multi-person risk aggregation (§3.3) | Low-Medium | Medium | **Done** | Publishable component. `RiskScorer` applies `max(per_person) * (1 + α·log(1 + n_extra))` with configurable `crowd_alpha`. |
+| T2.4 | Diagnostic topic publication | Low | Medium | **Done** | Useful for deployment and benchmarking. `/riskam/diagnostics` (`diagnostic_msgs/DiagnosticArray`) publishes frame time, person count, track count, and risk score. |
+| T2.5 | Remove dead code (LLaVA, autoencoder, old gaze.py) | Low | Medium | **Done** | Code hygiene. `riskam/ml/gaze.py`, `llava.py`, `autoencoder.py` and `scripts/llava_sandbox.py` removed; recoverable from git history if ever needed. |
+| T2.6 | Unit and integration test suite | Medium | Medium | **Done** | Required for deliverable quality. `tests/` contains `test_score.py`, `test_depth.py`, and `test_gaze.py` covering the new scorer, depth calibration, and head-pose gaze. A mocked-model full-pipeline smoke test remains a candidate future addition. |
 
 ### Tier 3 — Polish, documentation, scientific presentation
 
-| # | Item | Effort | Impact | Notes |
-|---|------|--------|--------|-------|
-| T3.1 | ARM64 + AMD64 Dockerfiles | Low | High for deployment | SamXL already has ARM64 variant |
-| T3.2 | Config param validation and better error handling | Low | Medium | Code quality |
-| T3.3 | Evaluation framework improvements | Medium | High for paper | Compare old vs new sub-scores quantitatively |
-| T3.4 | Ground-truth annotation tool improvements | Medium | High for paper | Need re-annotated dataset for new metrics |
-| T3.5 | `riskam_bagger.py` configurable topics | Low | Low | Engineering cleanliness |
-| T3.6 | API documentation (docstrings, README) | Low | Medium | EU deliverable presentation |
-| T3.7 | Sphinx API docs | Low | Low | Optional, if deliverable template requires |
+| # | Item | Effort | Impact | Status | Notes |
+|---|------|--------|--------|--------|-------|
+| T3.1 | ARM64 + AMD64 Dockerfiles | Low | High for deployment | **Pending** | SamXL already has ARM64 variant. |
+| T3.2 | Config param validation and better error handling | Low | Medium | **Partial** | Weight-sum validation and broad frame-processing try/except landed with the Tier 1/2 pass; depth-topic-unavailable fallback and full input validation still to do. |
+| T3.3 | Evaluation framework improvements | Medium | High for paper | **Pending** | Compare old vs new sub-scores quantitatively. |
+| T3.4 | Ground-truth annotation tool improvements | Medium | High for paper | **Pending** | Need re-annotated dataset for new metrics. |
+| T3.5 | `riskam_bagger.py` configurable topics | Low | Low | **Done** | Bagger topics are now declared as ROS parameters in `riskam_bagger.py` and mirrored in `riskam_config.yml`. Landed incidentally in the Tier 1/2 pass. |
+| T3.6 | API documentation (docstrings, README) | Low | Medium | **Pending** | EU deliverable presentation. |
+| T3.7 | Sphinx API docs | Low | Low | **Pending** | Optional, if deliverable template requires. |
 
 ---
 
@@ -233,3 +235,11 @@ The explicit score architecture (vs black-box VLMs) is a selling point for expla
 ---
 
 *This plan should be reviewed and updated as implementation progresses. The Tier 1 items represent the minimum viable improvement set for the next deliverable milestone.*
+
+---
+
+## 9. Implementation Status Log
+
+A running record of the plan's progress. Extend by appending new entries; do not rewrite history.
+
+- **2026-04-22** — Verified commit `4fc6711` against the roadmap. All Tier 1 items (T1.1–T1.6) and all Tier 2 items (T2.1–T2.6) are implemented. Tier 3 landed incidentally: T3.5 (bagger configurable topics) is complete; T3.2 (config validation and error handling) is partial. T3.1, T3.3, T3.4, T3.6, T3.7 remain pending.
