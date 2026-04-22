@@ -56,6 +56,15 @@ if __name__ == "__main__":
             "configs/sweeps/default.yaml is loaded."
         ),
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=(
+            "Disable the per-frame feature cache. By default, YOLO + ByteTrack "
+            "+ depth-per-bbox outputs are cached under ``feature_cache/`` so "
+            "sweep cells that vary only scoring parameters re-use them."
+        ),
+    )
     args = parser.parse_args()
 
     if args.action == "inspect":
@@ -67,4 +76,5 @@ if __name__ == "__main__":
             args.run,
             split=args.split,
             sweep_config=sweep,
+            use_cache=not args.no_cache,
         )

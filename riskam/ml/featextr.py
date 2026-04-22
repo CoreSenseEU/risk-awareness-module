@@ -3,21 +3,27 @@ ml.featextr
 
 Feature extraction pipeline for risk awareness.
 
-Orchestrates human detection (ByteTrack), per-bbox depth extraction, and the
-four risk sub-scores (proximity, gaze, x_offset, approach) into a single
-:class:`FrameExtraction` result.
+The pipeline is split in two so the parameter-independent half can be
+cached on disk:
 
-Required inputs (enforced at entry): RGB image + absolute depth (metres).
-Optional inputs: ``cmd_vel`` enables the path-aware x_offset. Without it
-x_offset falls back to the centre-offset heuristic (status = FALLBACK).
+  1. :func:`extract_primitives` — runs YOLO/pose, ByteTrack matching, and
+     depth-per-bbox extraction. Output is fully determined by ``(model,
+     RGB frame, depth frame)`` and is cached by :mod:`riskam.feature_cache`.
+  2. :func:`extract_features` — converts those primitives into the four
+     risk sub-scores (proximity, gaze, x_offset, approach) using the
+     parameters of the current sweep cell. Cheap (~µs).
 
-The legacy call signature ``extract_human_risk_awareness_features(image,
-depth_image_m=..., ...)`` is preserved for backwards compatibility; it just
-assembles a :class:`FrameInputs` and delegates to :func:`extract`.
+:func:`extract` is a convenience wrapper that runs both back-to-back.
+:func:`extract_with_cache` is the same wrapper plus a cache lookup.
+
+Required inputs (enforced at entry): RGB + absolute depth. Optional: cmd_vel.
 """
+
+from __future__ import annotations
 
 import numpy as np
 
+from riskam.feature_cache import CachedFrameFeatures, FeatureCache
 from riskam.ml import depth as depth_mod, humandet
 from riskam.ml.depth import D_SAFE_DEFAULT
 from riskam.ml.subscores import (
@@ -32,42 +38,75 @@ from riskam.ml.subscores import (
 )
 
 
-def extract(
+# ── Parameter-independent half: cacheable ────────────────────────────────────
+
+
+def extract_primitives(
     inputs: FrameInputs,
+    d_safe: float = D_SAFE_DEFAULT,
+    track_bboxes: bool = True,
+) -> CachedFrameFeatures:
+    """Run YOLO/pose detection, ByteTrack, and depth-per-bbox extraction.
+
+    Output is determined by ``(model_state, rgb, depth_m)`` and the
+    ``track_bboxes`` flag — independent of any scoring parameters.
+    """
+    inputs.validate()
+
+    bboxes, keypoints, track_ids = humandet.detect_humans(
+        inputs.rgb, track_bboxes
+    )
+    depth_viz = depth_mod.depth_to_visualization(inputs.depth_m, d_safe=d_safe)
+
+    if not bboxes:
+        return CachedFrameFeatures(
+            human_bboxes=[],
+            keypoints_np=None,
+            track_ids=[],
+            bbox_depths_m=[],
+            depth_viz=depth_viz,
+        )
+
+    bbox_depths_m = depth_mod.extract_bbox_depths(
+        inputs.depth_m, bboxes, d_safe=d_safe
+    )
+    return CachedFrameFeatures(
+        human_bboxes=bboxes,
+        keypoints_np=keypoints,
+        track_ids=track_ids,
+        bbox_depths_m=bbox_depths_m,
+        depth_viz=depth_viz,
+    )
+
+
+# ── Parameter-dependent half: cheap, never cached ────────────────────────────
+
+
+def extract_features(
+    primitives: CachedFrameFeatures,
+    image_shape: tuple[int, int],
+    cmd_vel: RobotVelocity | None = None,
     d_safe: float = D_SAFE_DEFAULT,
     gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
     gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
-    track_bboxes: bool = True,
 ) -> FrameExtraction:
-    """Run the full per-frame feature-extraction pipeline.
+    """Compute the four sub-scores from cached primitives + scoring params.
 
-    Parameters
-    ----------
-    inputs : FrameInputs
-        RGB + depth (required), cmd_vel (optional).
+    ``image_shape`` is ``(H, W)`` — needed for the x_offset normalisation.
     """
-    inputs.validate()
-
-    human_bboxes, keypoints_np, track_ids = humandet.detect_humans(
-        inputs.rgb, track_bboxes
-    )
-
-    # Depth visualisation is cheap and always available (depth is required).
-    depth_viz = depth_mod.depth_to_visualization(inputs.depth_m, d_safe=d_safe)
-
-    if len(human_bboxes) == 0:
+    if not primitives.human_bboxes:
         return FrameExtraction(
             human_bboxes=[],
-            depth_viz=depth_viz,
+            depth_viz=primitives.depth_viz,
             features=None,
             subscore_status={
                 "proximity": SubScoreStatus.ACTIVE,
                 "gaze": SubScoreStatus.ACTIVE,
                 "x_offset": (
                     SubScoreStatus.ACTIVE
-                    if inputs.cmd_vel is not None
+                    if cmd_vel is not None
                     else SubScoreStatus.FALLBACK
                 ),
                 "approach": SubScoreStatus.UNAVAILABLE,
@@ -76,26 +115,21 @@ def extract(
             track_ids=[],
         )
 
-    # Depth-per-bbox in metres — fed to both the proximity sub-score *and*
-    # to the velocity tracker so slope has correct m/s units.
-    bbox_depths_m = depth_mod.extract_bbox_depths(
-        inputs.depth_m, human_bboxes, d_safe=d_safe
-    )
-
-    proximity = compute_proximity(human_bboxes, inputs.depth_m, d_safe=d_safe)
+    proximity = compute_proximity(primitives.bbox_depths_m, d_safe=d_safe)
     gaze = compute_gaze(
-        keypoints_np,
+        primitives.keypoints_np,
         sigma_yaw=gaze_sigma_yaw,
         sigma_pitch=gaze_sigma_pitch,
         frontal_pitch_ratio=gaze_frontal_pitch_ratio,
         algorithm=gaze_algorithm,
     )
+    image_h, image_w = image_shape
+    x_offset = compute_x_offset(
+        primitives.human_bboxes, image_w, image_h, cmd_vel
+    )
 
-    image_h, image_w = inputs.rgb.shape[:2]
-    x_offset = compute_x_offset(human_bboxes, image_w, image_h, inputs.cmd_vel)
-
-    humandet.update_velocity(track_ids, bbox_depths_m)
-    approach = compute_approach(track_ids)
+    humandet.update_velocity(primitives.track_ids, primitives.bbox_depths_m)
+    approach = compute_approach(primitives.track_ids)
 
     features = {
         "proximity": proximity.values,
@@ -121,12 +155,73 @@ def extract(
     }
 
     return FrameExtraction(
-        human_bboxes=human_bboxes,
-        depth_viz=depth_viz,
+        human_bboxes=primitives.human_bboxes,
+        depth_viz=primitives.depth_viz,
         features=features,
         subscore_status=status,
         subscore_reasons=reasons,
-        track_ids=track_ids,
+        track_ids=primitives.track_ids,
+    )
+
+
+# ── Convenience wrappers ─────────────────────────────────────────────────────
+
+
+def extract(
+    inputs: FrameInputs,
+    d_safe: float = D_SAFE_DEFAULT,
+    gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
+    gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
+    gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
+    gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
+    track_bboxes: bool = True,
+) -> FrameExtraction:
+    """Run the full per-frame feature-extraction pipeline (no cache)."""
+    primitives = extract_primitives(inputs, d_safe=d_safe, track_bboxes=track_bboxes)
+    return extract_features(
+        primitives,
+        image_shape=inputs.rgb.shape[:2],
+        cmd_vel=inputs.cmd_vel,
+        d_safe=d_safe,
+        gaze_sigma_yaw=gaze_sigma_yaw,
+        gaze_sigma_pitch=gaze_sigma_pitch,
+        gaze_frontal_pitch_ratio=gaze_frontal_pitch_ratio,
+        gaze_algorithm=gaze_algorithm,
+    )
+
+
+def extract_with_cache(
+    inputs: FrameInputs,
+    cache: FeatureCache,
+    run: str,
+    rgb_stem: str,
+    d_safe: float = D_SAFE_DEFAULT,
+    gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
+    gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
+    gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
+    gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
+    track_bboxes: bool = True,
+) -> FrameExtraction:
+    """Run the pipeline using a feature cache for the inference half.
+
+    Cache miss → run :func:`extract_primitives` and write back; cache hit
+    → load primitives from disk and skip YOLO/ByteTrack entirely.
+    """
+    primitives = cache.get(run, rgb_stem)
+    if primitives is None:
+        primitives = extract_primitives(
+            inputs, d_safe=d_safe, track_bboxes=track_bboxes
+        )
+        cache.put(run, rgb_stem, primitives)
+    return extract_features(
+        primitives,
+        image_shape=inputs.rgb.shape[:2],
+        cmd_vel=inputs.cmd_vel,
+        d_safe=d_safe,
+        gaze_sigma_yaw=gaze_sigma_yaw,
+        gaze_sigma_pitch=gaze_sigma_pitch,
+        gaze_frontal_pitch_ratio=gaze_frontal_pitch_ratio,
+        gaze_algorithm=gaze_algorithm,
     )
 
 
@@ -141,11 +236,7 @@ def extract_human_risk_awareness_features(
     gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
     track_bboxes: bool = True,
 ) -> FrameExtraction:
-    """Backwards-compatible wrapper around :func:`extract`.
-
-    Older callers can keep their positional-argument style; the wrapper just
-    constructs a :class:`FrameInputs` and returns the orchestrator output.
-    """
+    """Backwards-compatible wrapper around :func:`extract`."""
     return extract(
         FrameInputs(rgb=image, depth_m=depth_image_m, cmd_vel=cmd_vel),
         d_safe=d_safe,

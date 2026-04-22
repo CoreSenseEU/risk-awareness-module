@@ -133,13 +133,17 @@ class FrameExtraction:
 
 
 def compute_proximity(
-    bboxes: list,
-    depth_m: np.ndarray,
+    bbox_depths_m: list[float],
     d_safe: float = depth_mod.D_SAFE_DEFAULT,
 ) -> SubScoreResult:
-    """Proximity from absolute depth. Required inputs — always ACTIVE here."""
+    """Proximity from per-bbox depths in metres. Always ACTIVE.
+
+    Takes per-bbox depths rather than the full depth image so the same
+    function works whether the caller computed depths fresh or loaded them
+    from the per-frame cache (see ``riskam.feature_cache``).
+    """
     values = np.asarray(
-        depth_mod.extract_bbox_proximities(depth_m, bboxes, d_safe=d_safe),
+        depth_mod.depths_to_proximities(bbox_depths_m, d_safe=d_safe),
         dtype=float,
     )
     return SubScoreResult(values=values, status=SubScoreStatus.ACTIVE)

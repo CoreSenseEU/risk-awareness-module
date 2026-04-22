@@ -69,8 +69,10 @@ class TestRobotVelocity:
 
 class TestComputeProximity:
     def test_active_with_depth(self):
-        depth = np.full((50, 50), 0.5, dtype=np.float32)  # 0.5 m uniform
-        r = compute_proximity([[0, 0, 40, 40]], depth, d_safe=1.5)
+        # Signature is now compute_proximity(bbox_depths_m, d_safe) — caller
+        # is expected to have extracted per-bbox depths via
+        # depth.extract_bbox_depths (or from a cached primitives record).
+        r = compute_proximity([0.5], d_safe=1.5)
         assert r.status == SubScoreStatus.ACTIVE
         assert r.values.shape == (1,)
         assert 0.5 < r.values[0] < 1.0

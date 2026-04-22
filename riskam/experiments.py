@@ -20,8 +20,9 @@ from riskam.data.splits import (
     load_split,
 )
 from riskam.eval_metrics import classification_report
+from riskam.feature_cache import FeatureCache, model_sha
 from riskam.ml import featextr, humandet
-from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
+from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT, YOLO_POSE_MODEL_PATH
 from riskam.ml.subscores import FrameInputs
 from riskam.provenance import reproducibility_metadata
 from riskam.sweep_config import SweepConfig, load_sweep_config
@@ -31,6 +32,7 @@ from riskam.score import RiskScorer
 
 # Dir and file names/paths
 EXP_ROOT_DIR = Path(__file__).parent.parent / "exp_results"
+FEATURE_CACHE_ROOT = Path(__file__).parent.parent / "feature_cache"
 RISK_IMAGES_DIRNAME = "risk_images"
 RAW_VIDEO_FNAME = "raw_video.avi"
 RISK_VIDEO_FNAME = "risk_video.avi"
@@ -158,6 +160,24 @@ def inspect_predictions(
     cv2.destroyAllWindows()
 
 
+def _build_feature_cache(dataset: str, use_cache: bool) -> FeatureCache | None:
+    """Construct a feature cache for the current dataset, or return None.
+
+    Returns None if ``use_cache`` is False or the YOLO model file is missing
+    (e.g. running against a stripped-down checkout without the weights).
+    """
+    if not use_cache:
+        return None
+    if not YOLO_POSE_MODEL_PATH.is_file():
+        print(
+            f"[warn] YOLO model not found at {YOLO_POSE_MODEL_PATH}; "
+            "feature caching disabled for this run."
+        )
+        return None
+    sha = model_sha(YOLO_POSE_MODEL_PATH)
+    return FeatureCache(FEATURE_CACHE_ROOT, sha, dataset)
+
+
 def run_experiment(
     dataset: str,
     params: dict,
@@ -165,6 +185,7 @@ def run_experiment(
     output_images: bool = False,
     overwrite_existing: bool = False,
     split: str | None = None,
+    use_cache: bool = True,
 ) -> None:
     """
     Run the experiment for the given dataset with the given experimental params.
@@ -270,6 +291,7 @@ def run_experiment(
     times = []
 
     scorer = RiskScorer()
+    feature_cache = _build_feature_cache(dataset, use_cache)
 
     # Each offline run is a logically separate session; clear any lingering
     # per-track velocity history from prior runs/configs so the approach
@@ -302,14 +324,30 @@ def run_experiment(
         # until T3.3 adds bag-backed velocity replay; x_offset will therefore
         # report FALLBACK status (centre-offset heuristic).
         t_start = time()
-        result = featextr.extract(
-            FrameInputs(rgb=cv_image, depth_m=depth_image_m, cmd_vel=None),
-            gaze_sigma_yaw=params["gaze_sigma_yaw"],
-            gaze_sigma_pitch=params["gaze_sigma_pitch"],
-            gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
-            gaze_algorithm=params.get("gaze_algorithm", "head_pose"),
-            track_bboxes=True,
+        frame_inputs = FrameInputs(
+            rgb=cv_image, depth_m=depth_image_m, cmd_vel=None
         )
+        if feature_cache is not None:
+            result = featextr.extract_with_cache(
+                frame_inputs,
+                feature_cache,
+                run,
+                img_path.stem,
+                gaze_sigma_yaw=params["gaze_sigma_yaw"],
+                gaze_sigma_pitch=params["gaze_sigma_pitch"],
+                gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
+                gaze_algorithm=params.get("gaze_algorithm", "head_pose"),
+                track_bboxes=True,
+            )
+        else:
+            result = featextr.extract(
+                frame_inputs,
+                gaze_sigma_yaw=params["gaze_sigma_yaw"],
+                gaze_sigma_pitch=params["gaze_sigma_pitch"],
+                gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
+                gaze_algorithm=params.get("gaze_algorithm", "head_pose"),
+                track_bboxes=True,
+            )
         # Compute the risk score and the index of the highest risk bbox
         risk_score, max_risk_idx, _ = scorer.score(
             result.features,
@@ -366,6 +404,14 @@ def run_experiment(
     metrics["split"] = split
     if split_meta is not None:
         metrics["split_meta"] = split_meta
+
+    # T3.3.7: record feature-cache hit/miss stats for the experiment.
+    if feature_cache is not None:
+        metrics["feature_cache"] = {
+            "hits": feature_cache.hits,
+            "misses": feature_cache.misses,
+            "hit_rate": feature_cache.hit_rate(),
+        }
 
     # Save the results
     results_path = experiment_dir / RESULTS_JSON_FNAME
@@ -429,6 +475,12 @@ def run_experiment(
             f"MAE: {cls['regression']['mae']:.3f} | "
             f"RMSE: {cls['regression']['rmse']:.3f}"
         )
+    if feature_cache is not None:
+        print(
+            f"    - Feature cache: {feature_cache.hits} hits / "
+            f"{feature_cache.misses} misses "
+            f"({feature_cache.hit_rate() * 100:.1f}% hit rate)"
+        )
     print(f"    - Average time per image: {avg_time:.2f}s")
 
 
@@ -439,6 +491,7 @@ def run_experiments(
     overwrite_existing: bool = False,
     split: str | None = None,
     sweep_config: SweepConfig | None = None,
+    use_cache: bool = True,
 ) -> None:
     """Run every experiment cell in the given sweep config.
 
@@ -459,6 +512,7 @@ def run_experiments(
             output_images,
             overwrite_existing,
             split=split,
+            use_cache=use_cache,
         )
 
 
