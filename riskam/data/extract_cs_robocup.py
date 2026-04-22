@@ -85,23 +85,15 @@ def extract_cs_robocup2023() -> None:
                             + img_msg.header.stamp.nanosec * 1e-9
                         )
 
-                        """
-                        if topic_name == TOPIC_DEPTH_IMAGE:
-                            cv_image = cv_image.astype(np.float32)  # Ensure float type
-                            invalid_mask = (cv_image <= 0) | (~np.isfinite(cv_image))
-                            cv_image[invalid_mask] = np.nan
-
-                            # Save depth image as .npy file
+                        if topic_name == TOPIC_RGB_IMAGE:
+                            rgb_path = rgb_output_dir / f"{timestamp:.3f}.png"
+                            Image.fromarray(cv_image).save(rgb_path)
+                        elif topic_name == TOPIC_DEPTH_IMAGE:
+                            # Raw uint16 millimetres (RealSense native).
+                            # Unit conversion happens at load time via
+                            # riskam.ml.depth.depth_mm_to_m.
                             depth_path = depth_output_dir / f"{timestamp:.3f}.npy"
                             np.save(depth_path, cv_image)
-                        """
-                        if topic_name == TOPIC_RGB_IMAGE:
-                            # Save RGB image as .png file
-                            rgb_path = rgb_output_dir / f"{timestamp:.3f}.png"
-                            rgb_image = Image.fromarray(cv_image)
-                            rgb_image.save(rgb_path)
-
-                        # print(f"Saved image: {image_path}")
 
                     except Exception as e:  # pylint: disable=broad-except
                         print(f"Error processing image: {e}")

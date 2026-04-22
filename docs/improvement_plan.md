@@ -147,6 +147,31 @@ Add at minimum:
 #### 4.8 Hardcoded topic names in `riskam_bagger.py`
 All six topic strings are hardcoded. Move them to the YAML configuration and declare them as node parameters, consistent with `riskam_node.py`.
 
+#### 4.9 Evaluation framework refactor (pre-T3.3)
+
+The evaluation code (`riskam/experiments.py`, `scripts/run_experiments.py`, `scripts/run_experiments_cs_robocup_2023_all.sh`, `riskam/data/annotator.py`) was written against the pre-improvement pipeline and is not fit as a scientific benchmark for the new one. A code audit identified the following issues; they are prerequisite to T3.3/T3.4 as originally scoped, and the roadmap entries below are expanded accordingly.
+
+**Correctness / pipeline parity with the live node:**
+1. **Offline depth is not loaded.** `ml_datasets/cs_robocup_2023/raw_dataset/RB_XX/depth/` holds per-frame absolute-depth `.npy` files, but `run_experiment()` calls `extract_human_risk_awareness_features(..., depth_image_m=None)`. The proximity sub-score is therefore identically zero for the entire sweep — the single most important new sub-score is silently disabled.
+2. **Approach sub-score is dead data.** `featextr` computes `features["approach"]` per T2.2, but `RiskScorer.score()` never multiplies it in; there is no `w_approach` weight. The improvement is unevaluable and has no runtime effect.
+3. **Path-aware trajectory is ROS-only.** T2.1's path-proximity score lives in `riskam_node._path_proximity_score` and depends on `/cmd_vel`. Offline experiments fall back to the pre-improvement x-offset heuristic. T2.1 cannot be evaluated against the dataset in the current layout; either the projection must move into `featextr`/`RiskScorer`, or the offline loop must replay `/cmd_vel` from the source bag.
+
+**Scientific reporting:**
+4. **Metrics are coarse.** Only `correct` / `underestimate` / `overestimate` counts are produced. No per-class precision/recall/F1, no confusion matrix, no regression metric (MAE/RMSE against class centre). Config ranking is not meaningful.
+5. **No cross-run aggregation.** Each `RB_XX` run writes its own JSONs in isolation. No summary across all runs, no ranked best-config table, no plots.
+6. **No ablation harness and no baseline reconstruction.** Quantifying each individual improvement requires (a) first-class "disable sub-score X" beyond zeroing a weight and (b) a runnable pre-improvement baseline (MiDaS-style relative depth, eye-symmetry gaze, x-position trajectory) recovered from git history behind a feature flag.
+7. **No train/val/test split on the annotations.** Parameter sweeps tune on the same set that reports the headline number. Overfitting concern.
+
+**Engineering / workflow:**
+8. **Hardcoded parameter grid.** `RISK_SCORE_WEIGHTS`, `GAZE_SIGMA_YAW_VALUES`, `GAZE_SIGMA_PITCH_VALUES` live in source; adding `w_approach`, `d_safe`, `crowd_alpha` requires code edits. Grid definitions belong in a config file.
+9. **No feature caching.** YOLO detection/pose inference is deterministic per image yet is re-run for every parameter combination. The standard 36-config × 7-run sweep is ≈250× redundant; cached bboxes/keypoints/depth-at-bbox turn the sweep from O(hours) to O(minutes).
+10. **No eval-only mode.** Raw predictions are saved per run but cannot be re-scored under a different metric or risk-breakpoint set without re-running inference.
+11. **No reproducibility metadata.** Results are not stamped with git SHA, config hash, package versions, hostname, or seed.
+12. **No CI regression gate.** Nothing fails a PR if a change silently regresses known accuracy on a curated subset.
+
+**Annotator:**
+13. The tool saves a single integer label per frame, overwrites existing annotations destructively, offers no resume/progress, displays no current-pipeline prediction to calibrate against, and cannot label multi-person scenes per-person. These gaps must be closed before the T3.4 re-annotation pass to keep the cost manageable.
+
 ---
 
 ## 5. ROS and Package Stack
@@ -196,8 +221,25 @@ The following stack-level changes are safe:
 |---|------|--------|--------|--------|-------|
 | T3.1 | ARM64 + AMD64 Dockerfiles | Low | High for deployment | **Pending** | SamXL already has ARM64 variant. |
 | T3.2 | Config param validation and better error handling | Low | Medium | **Partial** | Weight-sum validation and broad frame-processing try/except landed with the Tier 1/2 pass; depth-topic-unavailable fallback and full input validation still to do. |
-| T3.3 | Evaluation framework improvements | Medium | High for paper | **Pending** | Compare old vs new sub-scores quantitatively. |
-| T3.4 | Ground-truth annotation tool improvements | Medium | High for paper | **Pending** | Need re-annotated dataset for new metrics. |
+| T3.3 | Evaluation framework refactor | — | — | **Pending** | Expanded into T3.3.1–T3.3.12 below (see §4.9). |
+| T3.3.1 | Load offline depth in experiments | Low | **Very high** | **Done** | Depth extraction re-enabled in `extract_cs_robocup.py` (raw uint16 mm `.npy`); `CSRobocup2023DepthIndex` does nearest-neighbour RGB↔depth lookup via binary search; `experiments.run_experiment` now passes `depth_image_m` to `featextr`. Covered by `tests/test_cs_robocup_depth_index.py`. |
+| T3.3.2 | Wire `approach` sub-score into `RiskScorer` | Low | **High** | Pending | BUG. Add `w_approach` weight; T2.2's approach score is currently computed and discarded. |
+| T3.3.3 | Offline evaluability of path-aware trajectory | Medium | High | Pending | Either lift `_path_proximity_score` into `featextr`/`RiskScorer`, or replay `/cmd_vel` from the source bag during the offline loop. Without this, T2.1 cannot be evaluated on the dataset. |
+| T3.3.4 | Expanded classification + regression metrics | Low | High | Pending | Per-class precision/recall/F1, confusion matrix, macro/micro averages, MAE/RMSE vs class centre. One `metrics.json` per experiment. |
+| T3.3.5 | Cross-run aggregation + ranked reports | Medium | High | Pending | Single `summary.json` + markdown/CSV across all runs × configs; top-K configs per metric; plots (confusion matrix, per-run accuracy). |
+| T3.3.6 | Config-driven parameter sweep | Low | Medium | Pending | YAML config for grids; include `w_approach`, `d_safe`, `crowd_alpha`. Supports named presets. |
+| T3.3.7 | Feature-extraction caching | Medium | High | Pending | Cache YOLO bboxes/keypoints + depth-at-bbox per (dataset, run, model SHA). Reduces the standard sweep from O(hours) to O(minutes). |
+| T3.3.8 | Eval-only mode | Low | Medium | Pending | Given cached raw predictions, re-evaluate under different metrics or risk breakpoints without re-running inference. |
+| T3.3.9 | Reproducibility metadata | Low | Medium | Pending | Stamp each result JSON with git SHA, config hash, package versions, hostname, seed, timestamp. |
+| T3.3.10 | Train/val/test split on annotations | Low | Medium | Pending | Stratified split with a documented seed; tune on val, report final on test. |
+| T3.3.11 | Ablation harness + baseline reconstruction | Medium | **High for paper** | Pending | First-class "disable sub-score X" plus a runnable pre-improvement baseline (MiDaS-style relative depth, eye-symmetry gaze, x-position trajectory) behind a feature flag, recovered from git history. Blocks the ablation study. |
+| T3.3.12 | CI regression gate | Medium | Medium | Pending | Small curated subset; fail PRs whose key metric regresses beyond a documented budget. |
+| T3.4 | Annotation tool and dataset re-annotation | — | — | **Pending** | Expanded into T3.4.1–T3.4.5 below. |
+| T3.4.1 | Show current-pipeline prediction while annotating | Low | Medium | Pending | Run the new pipeline once per frame; display its class alongside the image to calibrate annotator judgment. |
+| T3.4.2 | Non-destructive save + resume/progress | Low | Medium | Pending | Backup prior annotations on save; resume from the last labelled frame. |
+| T3.4.3 | Per-person (per-bbox) annotation | Medium | Medium | Pending | Scene-level label is a max; per-person labels enable per-sub-score evaluation and support multi-person scenes properly. |
+| T3.4.4 | Optional per-sub-score annotations | Medium | **High for paper** | Pending | Separate ground truth for proximity / gaze / path / approach where feasible; enables fine-grained ablation and validates each sub-score in isolation. |
+| T3.4.5 | Re-annotate cs_robocup_2023 against the new pipeline | Medium (human) | **High for paper** | Pending | Uses T3.4.1–T3.4.4. Blocks the ablation evaluation in T3.3.11. |
 | T3.5 | `riskam_bagger.py` configurable topics | Low | Low | **Done** | Bagger topics are now declared as ROS parameters in `riskam_bagger.py` and mirrored in `riskam_config.yml`. Landed incidentally in the Tier 1/2 pass. |
 | T3.6 | API documentation (docstrings, README) | Low | Medium | **Pending** | EU deliverable presentation. |
 | T3.7 | Sphinx API docs | Low | Low | **Pending** | Optional, if deliverable template requires. |
@@ -243,3 +285,5 @@ The explicit score architecture (vs black-box VLMs) is a selling point for expla
 A running record of the plan's progress. Extend by appending new entries; do not rewrite history.
 
 - **2026-04-22** — Verified commit `4fc6711` against the roadmap. All Tier 1 items (T1.1–T1.6) and all Tier 2 items (T2.1–T2.6) are implemented. Tier 3 landed incidentally: T3.5 (bagger configurable topics) is complete; T3.2 (config validation and error handling) is partial. T3.1, T3.3, T3.4, T3.6, T3.7 remain pending.
+- **2026-04-22** — Pre-T3.3 audit of the evaluation framework. Three pipeline-parity bugs were found: offline experiments pass `depth_image_m=None` despite per-frame depth `.npy` files being available (T3.3.1); `RiskScorer.score()` never consumes `features["approach"]`, so T2.2 is dead data (T3.3.2); the path-aware trajectory score is computed only inside the ROS node, so T2.1 is not evaluable offline against cs_robocup_2023 (T3.3.3). The framework also lacks standard ML metrics, cross-run aggregation, a config-driven sweep, feature caching, eval-only re-scoring, reproducibility metadata, an ablation harness with a pre-improvement baseline, annotation train/val/test split, and a CI regression gate. The annotator tool is likewise too primitive for the T3.4 re-annotation pass (destructive save, single label per frame, no resume, no prediction-assisted view). Plan updated: new §4.9 narrative; T3.3 decomposed into T3.3.1–T3.3.12, T3.4 into T3.4.1–T3.4.5.
+- **2026-04-22** — T3.3.1 landed. Depth saving re-enabled in `riskam/data/extract_cs_robocup.py` (raw uint16 mm `.npy` under `RB_XX/depth/`); `CSRobocup2023DepthIndex` added to `riskam/data/cs_robocup_2023.py` for nearest-neighbour RGB↔depth lookup with a 0.2 s tolerance; `riskam/experiments.py` builds the index per run and passes `depth_image_m` into `featextr`. Six-test unit suite added at `tests/test_cs_robocup_depth_index.py`; full test suite passes (40 tests). Follow-up: a re-extraction pass against the source bags is needed before the next experiment run — users who already have extracted RGB will need to re-run `scripts/extract_ros2_dataset.py` to populate the `depth/` directories.

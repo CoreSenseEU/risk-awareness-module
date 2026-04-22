@@ -11,6 +11,7 @@ from time import time
 import cv2
 from tqdm import tqdm
 
+from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
 from riskam.ml import featextr
 from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
@@ -29,9 +30,8 @@ RAW_PREDICTIONS_JSON_FNAME = "raw_predictions.json"
 
 
 # Parameters — updated for the new pipeline.
-# Note: depth-based proximity is not available in offline experiments (no depth
-# sensor data in the RoboCup 2023 dataset); proximity scores will be 0.
-# Update this grid and re-annotate the dataset for a full evaluation (T3.3/T3.4).
+# Proximity is now computed from RealSense depth when it is available for the
+# frame (via CSRobocup2023DepthIndex); otherwise the sub-score falls back to 0.
 RISK_SCORE_WEIGHTS = [
     {"proximity": 0.7, "gaze": 0.25, "position": 0.05},
     {"proximity": 0.475, "gaze": 0.475, "position": 0.05},
@@ -165,11 +165,19 @@ def run_experiment(
     if ground_truth is None:
         return
 
-    # Establish the images directory
+    # Establish the images directory and per-dataset depth index
     img_dir = DATASETS[dataset]["img_dir"]
+    depth_index = None
 
     if dataset == "cs_robocup_2023":
         img_dir = img_dir / run / "rgb"
+        depth_index = CSRobocup2023DepthIndex(run)
+        if not depth_index:
+            print(
+                f"[warn] no depth frames found for '{run}'; "
+                "proximity sub-score will be 0. "
+                "Run scripts/extract_ros2_dataset.py to extract depth."
+            )
 
     # Establish the params slug to identify the experiment
     params_slug = _params_slug(params)
@@ -220,14 +228,15 @@ def run_experiment(
         if cv_image is None:
             continue
 
+        # Load the nearest-neighbour depth frame (if available).
+        depth_image_m = depth_index.load_for_rgb(img_path) if depth_index else None
+
         # Extract bboxes, depth visualisation, and risk features.
-        # depth_image_m=None because the offline dataset has no depth sensor data;
-        # proximity scores will be 0 until depth-enabled data is available (T3.4).
         t_start = time()
         human_bboxes, depth_viz, risk_features, track_ids = (
             featextr.extract_human_risk_awareness_features(
                 cv_image,
-                depth_image_m=None,
+                depth_image_m=depth_image_m,
                 gaze_sigma_yaw=params["gaze_sigma_yaw"],
                 gaze_sigma_pitch=params["gaze_sigma_pitch"],
                 gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,

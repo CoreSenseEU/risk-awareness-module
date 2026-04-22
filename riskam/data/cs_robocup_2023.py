@@ -27,6 +27,13 @@ from riskam.data.paths import (
     CS_ROBOCUP_2023_ML_RAW_DIR,
     CS_ROBOCUP_2023_ML_FEAT_DIR,
 )
+from riskam.ml.depth import depth_mm_to_m
+
+
+# Max allowable RGB↔depth timestamp mismatch (seconds). RealSense colour and
+# depth streams are typically synced within tens of milliseconds; anything
+# beyond this threshold is treated as missing depth data.
+RGB_DEPTH_MAX_DT_S = 0.2
 
 
 CS_ROBOCUP_N_HUMANS_PATH = CS_ROBOCUP_2023_ML_DIR / "n_humans.json"
@@ -116,6 +123,59 @@ class CSRoboCup2023(Dataset):
             image = self.transform(image)
 
         return image
+
+
+class CSRobocup2023DepthIndex:
+    """Nearest-neighbour depth lookup for CS RoboCup 2023 frames.
+
+    Depth frames are stored as ``{timestamp:.3f}.npy`` under
+    ``RB_XX/depth/`` (raw uint16 millimetres, as emitted by the RealSense
+    sensor). This index sorts available timestamps once, then resolves the
+    closest depth frame for any RGB frame via binary search. If the closest
+    depth frame is more than ``RGB_DEPTH_MAX_DT_S`` seconds away, depth is
+    treated as unavailable.
+    """
+
+    def __init__(self, run: str) -> None:
+        depth_dir = CS_ROBOCUP_2023_ML_RAW_DIR / run / "depth"
+        if not depth_dir.is_dir():
+            self._timestamps = np.empty(0, dtype=float)
+            self._paths: list[Path] = []
+            return
+        paths = sorted(depth_dir.glob("*.npy"))
+        self._paths = paths
+        self._timestamps = np.array([float(p.stem) for p in paths], dtype=float)
+
+    def __bool__(self) -> bool:
+        return self._timestamps.size > 0
+
+    def __len__(self) -> int:
+        return self._timestamps.size
+
+    def load_for_rgb(self, rgb_path: Path) -> np.ndarray | None:
+        """Return the depth frame (float32 metres) nearest to ``rgb_path``.
+
+        Returns ``None`` if no depth frames are indexed, the RGB stem is not
+        a valid timestamp, or the closest depth frame is farther than
+        ``RGB_DEPTH_MAX_DT_S`` away.
+        """
+        if self._timestamps.size == 0:
+            return None
+        try:
+            target_ts = float(rgb_path.stem)
+        except ValueError:
+            return None
+        idx = int(np.searchsorted(self._timestamps, target_ts))
+        candidates = []
+        if idx > 0:
+            candidates.append(idx - 1)
+        if idx < self._timestamps.size:
+            candidates.append(idx)
+        best = min(candidates, key=lambda i: abs(self._timestamps[i] - target_ts))
+        if abs(self._timestamps[best] - target_ts) > RGB_DEPTH_MAX_DT_S:
+            return None
+        depth_mm = np.load(self._paths[best])
+        return depth_mm_to_m(depth_mm)
 
 
 def extract_features() -> None:
