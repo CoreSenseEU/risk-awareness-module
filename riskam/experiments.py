@@ -13,6 +13,12 @@ from tqdm import tqdm
 
 from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
+from riskam.data.splits import (
+    CS_ROBOCUP_2023_SPLIT_PATH,
+    VAL_BUCKETS,
+    filter_by_split,
+    load_split,
+)
 from riskam.eval_metrics import classification_report
 from riskam.ml import featextr, humandet
 from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
@@ -108,7 +114,12 @@ def _eval_prediction(gt: int, pred: float) -> str:
             return "overestimate"
 
 
-def inspect_predictions(dataset: str, pred_type: str, run: str | None = None) -> None:
+def inspect_predictions(
+    dataset: str,
+    pred_type: str,
+    run: str | None = None,
+    split: str | None = None,
+) -> None:
     """
     Inspect predictions of the given type ("correct", "underestimate", "overestimate")
     resulting from an experiment.
@@ -121,7 +132,10 @@ def inspect_predictions(dataset: str, pred_type: str, run: str | None = None) ->
         img_dir = img_dir / run / "rgb"
 
     # Load the predictions
-    predictions_path = EXP_ROOT_DIR / dataset / run / PREDICTIONS_JSON_FNAME
+    bucket_dir = split if split is not None else "all"
+    predictions_path = (
+        EXP_ROOT_DIR / dataset / bucket_dir / run / PREDICTIONS_JSON_FNAME
+    )
 
     if not predictions_path.exists():
         print("Predictions not found, run the experiment first.")
@@ -160,15 +174,50 @@ def run_experiment(
     run: str | None = None,
     output_images: bool = False,
     overwrite_existing: bool = False,
+    split: str | None = None,
 ) -> None:
     """
     Run the experiment for the given dataset with the given experimental params.
+
+    ``split`` selects which val/test bucket to evaluate against. ``None``
+    means "all annotated frames" (no split filter); ``"val"`` or ``"test"``
+    restrict to that bucket using the canonical split file. Results land in
+    ``exp_results/<dataset>/<bucket>/<run>/<params_slug>/`` where
+    ``bucket`` is ``"all"`` when ``split is None``.
     """
     # Load the ground truth labels
     ground_truth = _load_ground_truth(dataset, run)
 
     if ground_truth is None:
         return
+
+    # Apply split filter if requested.
+    split_meta: dict | None = None
+    if split is not None:
+        if split not in VAL_BUCKETS:
+            print(f"[error] split must be one of {VAL_BUCKETS}; got {split!r}.")
+            return
+        if dataset != "cs_robocup_2023":
+            print(f"[warn] split filtering not supported for '{dataset}'; ignoring.")
+            split = None
+        elif not CS_ROBOCUP_2023_SPLIT_PATH.exists():
+            print(
+                f"[error] split file not found at {CS_ROBOCUP_2023_SPLIT_PATH}. "
+                "Run scripts/generate_split.py first."
+            )
+            return
+        else:
+            split_obj = load_split(CS_ROBOCUP_2023_SPLIT_PATH)
+            ground_truth = filter_by_split(ground_truth, run, split_obj, split)
+            if not ground_truth:
+                print(f"[info] split={split} has no frames for run={run}; skipping.")
+                return
+            split_meta = {
+                "scheme": "stratified_within_run",
+                "test_fraction": split_obj.test_fraction,
+                "seed": split_obj.seed,
+                "bucket": split,
+            }
 
     # Establish the images directory and per-dataset depth index
     img_dir = DATASETS[dataset]["img_dir"]
@@ -193,8 +242,12 @@ def run_experiment(
         f"+++ EXPERIMENT {f"{dataset} / {run} / {params_slug}" if run else f"{dataset} / {params_slug}"} STARTED +++"
     )
 
-    # Establish the output directories
-    experiment_dir = EXP_ROOT_DIR / dataset / run / params_slug
+    # Output directory layout: exp_results/<dataset>/<bucket>/<run>/<slug>/
+    # where bucket is "all" when no split filter is in effect. This keeps
+    # val and test runs as siblings under the dataset root for the
+    # cross-run summarizer.
+    bucket_dir = split if split is not None else "all"
+    experiment_dir = EXP_ROOT_DIR / dataset / bucket_dir / run / params_slug
 
     # If not overwriting and the directory exists, stop
     if experiment_dir.exists() and not overwrite_existing:
@@ -318,6 +371,11 @@ def run_experiment(
     metrics["provenance"] = reproducibility_metadata()
     metrics["params"] = dict(params)
 
+    # T3.3.10: record which split this experiment ran against (None ↔ "all").
+    metrics["split"] = split
+    if split_meta is not None:
+        metrics["split_meta"] = split_meta
+
     # Save the results
     results_path = experiment_dir / RESULTS_JSON_FNAME
     results_path.parent.mkdir(exist_ok=True, parents=True)
@@ -388,6 +446,7 @@ def run_experiments(
     run: str | None = None,
     output_images: bool = False,
     overwrite_existing: bool = False,
+    split: str | None = None,
 ) -> None:
     """
     Run the experiments for the given dataset across all parameter configs.
@@ -408,6 +467,7 @@ def run_experiments(
                     run,
                     output_images,
                     overwrite_existing,
+                    split=split,
                 )
 
 

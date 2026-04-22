@@ -28,6 +28,16 @@ if __name__ == "__main__":
         help="The dataset whose results to summarize.",
     )
     parser.add_argument(
+        "--bucket",
+        type=str,
+        default="all",
+        choices=["all", "val", "test"],
+        help=(
+            "Which split bucket's results to aggregate. 'all' = experiments "
+            "run with no split filter. Default 'all'."
+        ),
+    )
+    parser.add_argument(
         "--rank-metric",
         type=str,
         default="macro_f1",
@@ -42,5 +52,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    dataset_root = EXP_ROOT_DIR / args.dataset
+    dataset_root = EXP_ROOT_DIR / args.dataset / args.bucket
     summarize(dataset_root, rank_metric=args.rank_metric, top_k=args.top_k)
