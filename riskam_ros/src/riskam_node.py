@@ -47,6 +47,7 @@ from riskam.score import (
     CROWD_ALPHA_DEFAULT,
     N_FRAMES_AGGREGATE,
     RiskScorer,
+    W_APPROACH_EMPIRICAL_DEFAULT,
     W_GAZE_EMPIRICAL_DEFAULT,
     W_POSITION_EMPIRICAL_DEFAULT,
     W_PROXIMITY_EMPIRICAL_DEFAULT,
@@ -65,6 +66,7 @@ class RiskAM(Node):
         self.declare_parameter("w_proximity", W_PROXIMITY_EMPIRICAL_DEFAULT)
         self.declare_parameter("w_gaze", W_GAZE_EMPIRICAL_DEFAULT)
         self.declare_parameter("w_position", W_POSITION_EMPIRICAL_DEFAULT)
+        self.declare_parameter("w_approach", W_APPROACH_EMPIRICAL_DEFAULT)
         self.declare_parameter("d_safe", D_SAFE_DEFAULT)
         self.declare_parameter("crowd_alpha", CROWD_ALPHA_DEFAULT)
         self.declare_parameter("n_frames_aggregate", N_FRAMES_AGGREGATE)
@@ -81,6 +83,7 @@ class RiskAM(Node):
         self.w_proximity = p("w_proximity").value
         self.w_gaze = p("w_gaze").value
         self.w_position = p("w_position").value
+        self.w_approach = p("w_approach").value
         self.d_safe = p("d_safe").value
         self.visualize_image = p("visualize_image").value
         self.gaze_sigma_yaw = p("gaze_sigma_yaw").value
@@ -89,7 +92,9 @@ class RiskAM(Node):
         sync_slop = p("sync_slop").value
 
         # Validate weights.
-        weight_sum = self.w_proximity + self.w_gaze + self.w_position
+        weight_sum = (
+            self.w_proximity + self.w_gaze + self.w_position + self.w_approach
+        )
         if abs(weight_sum - 1.0) > 0.01:
             self.get_logger().warn(
                 f"Risk weights sum to {weight_sum:.3f} (expected 1.0). "
@@ -217,6 +222,7 @@ class RiskAM(Node):
             w_proximity=self.w_proximity,
             w_gaze=self.w_gaze,
             w_position=self.w_position,
+            w_approach=self.w_approach,
         )
 
         # ── Sub-score extraction for publication ──────────────────────────────

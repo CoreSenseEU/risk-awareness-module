@@ -19,6 +19,10 @@ import numpy as np
 W_PROXIMITY_EMPIRICAL_DEFAULT = 0.7
 W_GAZE_EMPIRICAL_DEFAULT = 0.25
 W_POSITION_EMPIRICAL_DEFAULT = 0.05
+# Default 0.0 so wiring the T2.2 approach sub-score into the formula does not
+# silently shift live behaviour. Non-zero values are exercised by the T3.3
+# evaluation sweep; the final calibrated default will come out of T3.3.11.
+W_APPROACH_EMPIRICAL_DEFAULT = 0.0
 
 # ── Temporal aggregation ──────────────────────────────────────────────────────
 
@@ -65,6 +69,7 @@ class RiskScorer:
         w_proximity: float = W_PROXIMITY_EMPIRICAL_DEFAULT,
         w_gaze: float = W_GAZE_EMPIRICAL_DEFAULT,
         w_position: float = W_POSITION_EMPIRICAL_DEFAULT,
+        w_approach: float = W_APPROACH_EMPIRICAL_DEFAULT,
     ) -> tuple[float, int, dict[int | None, float]]:
         """Compute the scene risk score.
 
@@ -73,16 +78,21 @@ class RiskScorer:
         risk contribution is taken *directly* (not ``1 - proximity`` as in the
         prototype, which used MiDaS distance).  Gaze is still inverted because
         a high gaze score means the person *is* aware, which *lowers* risk.
+        The ``approach`` sub-score is in [0, 1] with 0.5 = stationary/unknown,
+        >0.5 = approaching, <0.5 = moving away — it is taken directly as a
+        risk contribution (stationary persons therefore add a constant baseline
+        of ``0.5 * w_approach``).
 
         Parameters
         ----------
         features : dict or None
-            Keys: ``"proximity"``, ``"gaze"``, ``"x_offset"``, each a 1-D
-            numpy array with one value per detected person.  ``None`` if no
-            humans are detected.
+            Keys: ``"proximity"``, ``"gaze"``, ``"x_offset"``, ``"approach"``,
+            each a 1-D numpy array with one value per detected person.
+            ``None`` if no humans are detected. ``"approach"`` is optional for
+            backwards compatibility; if missing, it is treated as neutral 0.5.
         track_ids : list[int | None] or None
             ByteTrack ID per person (None entries for untracked detections).
-        w_proximity, w_gaze, w_position : float
+        w_proximity, w_gaze, w_position, w_approach : float
             Weights; should sum to 1.
 
         Returns
@@ -98,11 +108,16 @@ class RiskScorer:
         if track_ids is None or len(track_ids) != n:
             track_ids = [None] * n
 
+        approach = features.get(
+            "approach", np.full(n, 0.5, dtype=float)
+        )
+
         # ── Per-person instantaneous risk ─────────────────────────────────────
         instant = (
             w_proximity * features["proximity"]       # close → high risk
             + w_gaze * (1.0 - features["gaze"])       # unaware → high risk
             + w_position * features["x_offset"]       # in-path → high risk
+            + w_approach * approach                   # approaching → high risk
         )
 
         # ── Temporal smoothing per track ──────────────────────────────────────

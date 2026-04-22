@@ -11,9 +11,13 @@
     cmd_vel_topic: "/cmd_vel"
 
     # ── Risk weights (must sum to 1.0) ────────────────────────────────────────
+    # w_approach weights the T2.2 approach sub-score (0.5 = stationary,
+    # >0.5 = approaching, <0.5 = moving away). Default 0.0 until the T3.3
+    # evaluation sweep produces a calibrated value.
     w_proximity: 0.7
     w_gaze: 0.25
     w_position: 0.05
+    w_approach: 0.0
 
     # ── Proximity / depth ─────────────────────────────────────────────────────
     # Safety distance in metres. Persons at or beyond d_safe score 0 on proximity.

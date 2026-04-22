@@ -116,3 +116,52 @@ class TestRiskScorerReset:
         # After reset, a low-risk frame should not be smoothed with the old high-risk one.
         risk, _, _ = scorer.score(_features(proximity=0.0, gaze=1.0, x_offset=0.0))
         assert risk < 0.1
+
+
+class TestRiskScorerApproach:
+    """T3.3.2: w_approach is wired into the instant-risk formula."""
+
+    def _flat(self, approach: float):
+        # All sub-scores zero except approach, so the instant risk is exactly
+        # w_approach * approach (gaze=1 → contribution 0).
+        return {
+            "proximity": np.array([0.0]),
+            "gaze": np.array([1.0]),
+            "x_offset": np.array([0.0]),
+            "approach": np.array([approach]),
+        }
+
+    def test_default_w_approach_is_zero(self):
+        scorer = RiskScorer(n_frames=1)
+        # With default weights, approach should NOT contribute — a strongly
+        # approaching person has the same score as one moving away.
+        risk_app, _, _ = scorer.score(self._flat(approach=1.0))
+        scorer.reset()
+        risk_away, _, _ = scorer.score(self._flat(approach=0.0))
+        assert risk_app == pytest.approx(risk_away, abs=1e-6)
+
+    def test_approaching_increases_risk_when_weighted(self):
+        scorer = RiskScorer(n_frames=1)
+        risk_app, _, _ = scorer.score(self._flat(approach=1.0), w_approach=0.5)
+        scorer.reset()
+        risk_away, _, _ = scorer.score(self._flat(approach=0.0), w_approach=0.5)
+        assert risk_app > risk_away
+
+    def test_approach_contribution_proportional_to_weight(self):
+        scorer = RiskScorer(n_frames=1)
+        risk, _, _ = scorer.score(self._flat(approach=1.0), w_approach=0.4)
+        # All other sub-scores contribute zero, so instant = 0.4 * 1.0 = 0.4.
+        assert risk == pytest.approx(0.4, abs=0.01)
+
+    def test_missing_approach_key_is_neutral(self):
+        scorer = RiskScorer(n_frames=1)
+        # Backwards-compat: a caller that omits "approach" should still work,
+        # treated as the neutral 0.5 baseline.
+        feats = {
+            "proximity": np.array([0.0]),
+            "gaze": np.array([1.0]),
+            "x_offset": np.array([0.0]),
+        }
+        risk, _, _ = scorer.score(feats, w_approach=0.4)
+        # 0.4 * 0.5 = 0.20
+        assert risk == pytest.approx(0.20, abs=0.01)

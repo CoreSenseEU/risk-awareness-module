@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
-from riskam.ml import featextr
+from riskam.ml import featextr, humandet
 from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
 from riskam import score, visualization as vis, video
 from riskam.score import RiskScorer
@@ -32,13 +32,15 @@ RAW_PREDICTIONS_JSON_FNAME = "raw_predictions.json"
 # Parameters — updated for the new pipeline.
 # Proximity is now computed from RealSense depth when it is available for the
 # frame (via CSRobocup2023DepthIndex); otherwise the sub-score falls back to 0.
+# The first three configs keep w_approach = 0 (pre-T3.3.2 baseline); the next
+# three enable the approach sub-score so the sweep measures its contribution.
 RISK_SCORE_WEIGHTS = [
-    {"proximity": 0.7, "gaze": 0.25, "position": 0.05},
-    {"proximity": 0.475, "gaze": 0.475, "position": 0.05},
-    {"proximity": 0.25, "gaze": 0.7, "position": 0.05},
-    {"proximity": 0.65, "gaze": 0.25, "position": 0.1},
-    {"proximity": 0.45, "gaze": 0.45, "position": 0.1},
-    {"proximity": 0.25, "gaze": 0.65, "position": 0.1},
+    {"proximity": 0.7, "gaze": 0.25, "position": 0.05, "approach": 0.0},
+    {"proximity": 0.475, "gaze": 0.475, "position": 0.05, "approach": 0.0},
+    {"proximity": 0.25, "gaze": 0.7, "position": 0.05, "approach": 0.0},
+    {"proximity": 0.6, "gaze": 0.2, "position": 0.05, "approach": 0.15},
+    {"proximity": 0.4, "gaze": 0.4, "position": 0.05, "approach": 0.15},
+    {"proximity": 0.2, "gaze": 0.6, "position": 0.05, "approach": 0.15},
 ]
 GAZE_SIGMA_YAW_VALUES = [0.2, 0.3, 0.5]
 GAZE_SIGMA_PITCH_VALUES = [0.3, 0.5]
@@ -217,6 +219,11 @@ def run_experiment(
 
     scorer = RiskScorer()
 
+    # Each offline run is a logically separate session; clear any lingering
+    # per-track velocity history from prior runs/configs so the approach
+    # sub-score starts fresh.
+    humandet.reset_velocity_history()
+
     # Perform the risk awareness analysis
     for img_path in tqdm(sorted(img_dir.iterdir())):
         # Skip if there is no ground truth for the image
@@ -232,6 +239,8 @@ def run_experiment(
         depth_image_m = depth_index.load_for_rgb(img_path) if depth_index else None
 
         # Extract bboxes, depth visualisation, and risk features.
+        # track_bboxes=True enables ByteTrack, which is required for the
+        # approach sub-score (per-track velocity estimation).
         t_start = time()
         human_bboxes, depth_viz, risk_features, track_ids = (
             featextr.extract_human_risk_awareness_features(
@@ -240,15 +249,17 @@ def run_experiment(
                 gaze_sigma_yaw=params["gaze_sigma_yaw"],
                 gaze_sigma_pitch=params["gaze_sigma_pitch"],
                 gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
-                track_bboxes=False,
+                track_bboxes=True,
             )
         )
         # Compute the risk score and the index of the highest risk bbox
         risk_score, max_risk_idx, _ = scorer.score(
             risk_features,
+            track_ids=track_ids,
             w_proximity=params["w_prox"],
             w_gaze=params["w_gaze"],
             w_position=params["w_pos"],
+            w_approach=params["w_approach"],
         )
         times.append(time() - t_start)
 
@@ -339,6 +350,7 @@ def run_experiments(
                         "w_prox": risk_weights["proximity"],
                         "w_gaze": risk_weights["gaze"],
                         "w_pos": risk_weights["position"],
+                        "w_approach": risk_weights["approach"],
                         "gaze_sigma_yaw": sigma_yaw,
                         "gaze_sigma_pitch": sigma_pitch,
                     },

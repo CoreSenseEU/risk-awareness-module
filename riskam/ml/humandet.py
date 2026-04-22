@@ -166,6 +166,16 @@ def approach_scores(track_ids: list[int | None]) -> list[float]:
     return [_approach_score(tid) for tid in track_ids]
 
 
+def reset_velocity_history() -> None:
+    """Clear the module-level per-track depth history.
+
+    Call this between logically distinct sessions (e.g. different offline runs)
+    so that depth observations from a prior session do not leak into velocity
+    estimates for a new one.
+    """
+    _velocity_history.clear()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
