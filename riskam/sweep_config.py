@@ -27,6 +27,8 @@ from typing import Iterator
 
 import yaml
 
+from riskam.ml.humandet import GAZE_ALGORITHMS, GAZE_ALGORITHM_DEFAULT
+
 
 DEFAULT_SWEEP_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent / "configs" / "sweeps" / "default.yaml"
@@ -61,12 +63,17 @@ class SweepConfig:
     weight_tuples: tuple[WeightTuple, ...]
     gaze_sigma_yaw: tuple[float, ...]
     gaze_sigma_pitch: tuple[float, ...]
+    # Independent Cartesian axis: which gaze algorithm(s) to evaluate.
+    # Defaults to ``("head_pose",)`` so old configs without this field continue
+    # to behave exactly as before.
+    gaze_algorithm: tuple[str, ...] = (GAZE_ALGORITHM_DEFAULT,)
 
     def __len__(self) -> int:
         return (
             len(self.weight_tuples)
             * len(self.gaze_sigma_yaw)
             * len(self.gaze_sigma_pitch)
+            * len(self.gaze_algorithm)
         )
 
     def iter_experiments(self) -> Iterator[dict]:
@@ -77,14 +84,16 @@ class SweepConfig:
         for wt in self.weight_tuples:
             for syaw in self.gaze_sigma_yaw:
                 for spitch in self.gaze_sigma_pitch:
-                    yield {
-                        "w_prox": wt.w_proximity,
-                        "w_gaze": wt.w_gaze,
-                        "w_pos": wt.w_position,
-                        "w_approach": wt.w_approach,
-                        "gaze_sigma_yaw": syaw,
-                        "gaze_sigma_pitch": spitch,
-                    }
+                    for algo in self.gaze_algorithm:
+                        yield {
+                            "w_prox": wt.w_proximity,
+                            "w_gaze": wt.w_gaze,
+                            "w_pos": wt.w_position,
+                            "w_approach": wt.w_approach,
+                            "gaze_sigma_yaw": syaw,
+                            "gaze_sigma_pitch": spitch,
+                            "gaze_algorithm": algo,
+                        }
 
 
 def load_sweep_config(path: Path | None = None) -> SweepConfig:
@@ -137,10 +146,28 @@ def _parse(data: dict, source: Path | str) -> SweepConfig:
             )
         return tuple(float(x) for x in xs)
 
+    # gaze_algorithm: optional. Accept a single string or a list of strings;
+    # default to the head-pose algorithm if absent.
+    raw_algos = data.get("gaze_algorithm", GAZE_ALGORITHM_DEFAULT)
+    if isinstance(raw_algos, str):
+        raw_algos = [raw_algos]
+    if not isinstance(raw_algos, list) or not raw_algos:
+        raise ValueError(
+            f"'gaze_algorithm' at {source} must be a string or non-empty list; "
+            f"got {raw_algos!r}."
+        )
+    for algo in raw_algos:
+        if algo not in GAZE_ALGORITHMS:
+            raise ValueError(
+                f"Unknown gaze algorithm {algo!r} at {source}; "
+                f"expected one of {GAZE_ALGORITHMS}."
+            )
+
     return SweepConfig(
         name=str(data.get("name", "unnamed")),
         description=str(data.get("description", "")),
         weight_tuples=tuple(weight_tuples),
         gaze_sigma_yaw=_float_list("gaze_sigma_yaw"),
         gaze_sigma_pitch=_float_list("gaze_sigma_pitch"),
+        gaze_algorithm=tuple(str(a) for a in raw_algos),
     )

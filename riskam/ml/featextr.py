@@ -38,6 +38,7 @@ def extract(
     gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
+    gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
     track_bboxes: bool = True,
 ) -> FrameExtraction:
     """Run the full per-frame feature-extraction pipeline.
@@ -87,6 +88,7 @@ def extract(
         sigma_yaw=gaze_sigma_yaw,
         sigma_pitch=gaze_sigma_pitch,
         frontal_pitch_ratio=gaze_frontal_pitch_ratio,
+        algorithm=gaze_algorithm,
     )
 
     image_h, image_w = inputs.rgb.shape[:2]
@@ -136,6 +138,7 @@ def extract_human_risk_awareness_features(
     gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
+    gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
     track_bboxes: bool = True,
 ) -> FrameExtraction:
     """Backwards-compatible wrapper around :func:`extract`.
@@ -149,5 +152,6 @@ def extract_human_risk_awareness_features(
         gaze_sigma_yaw=gaze_sigma_yaw,
         gaze_sigma_pitch=gaze_sigma_pitch,
         gaze_frontal_pitch_ratio=gaze_frontal_pitch_ratio,
+        gaze_algorithm=gaze_algorithm,
         track_bboxes=track_bboxes,
     )

@@ -61,6 +61,7 @@ class TestSweepConfigIter:
             "w_approach",
             "gaze_sigma_yaw",
             "gaze_sigma_pitch",
+            "gaze_algorithm",
         }
 
 

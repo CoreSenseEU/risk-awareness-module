@@ -26,3 +26,7 @@ weight_tuples:
 
 gaze_sigma_yaw: [0.2, 0.3, 0.5]
 gaze_sigma_pitch: [0.3, 0.5]
+
+# Modern post-T1.3 algorithm only. The eye-symmetry baseline lives in
+# configs/sweeps/ablation_gaze.yaml for the T3.3.11 ablation study.
+gaze_algorithm: [head_pose]

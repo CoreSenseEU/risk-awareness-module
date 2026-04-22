@@ -1,0 +1,33 @@
+# Gaze-algorithm ablation sweep.
+#
+# Identical to configs/sweeps/default.yaml except that ``gaze_algorithm``
+# is a 2-element axis: the post-T1.3 head-pose algorithm and the pre-T1.3
+# eye-symmetry baseline run side by side. Sweep size doubles to 72 cells.
+#
+# This is the data-side input for the T3.3.11 ablation study — running
+# the sweep twice (once on val, once on test) gives the comparison
+# numbers needed for the paper's "fixing F2 was worth it" claim.
+#
+# Usage:
+#   python scripts/run_experiments.py run cs_robocup_2023 --run RB_01 \
+#       --split val --sweep-config configs/sweeps/ablation_gaze.yaml
+
+name: ablation_gaze
+description: >-
+  72-cell sweep crossing the default 6 weight tuples × 3 yaw σ × 2 pitch σ
+  with both gaze algorithms (post-T1.3 head_pose vs. pre-T1.3 eye_symmetry).
+  Per-config rows in summary.md will include the algorithm in the params
+  slug, so ranking by macro F1 directly shows whether the fix helps.
+
+weight_tuples:
+  - { w_proximity: 0.7,   w_gaze: 0.25,  w_position: 0.05, w_approach: 0.0 }
+  - { w_proximity: 0.475, w_gaze: 0.475, w_position: 0.05, w_approach: 0.0 }
+  - { w_proximity: 0.25,  w_gaze: 0.7,   w_position: 0.05, w_approach: 0.0 }
+  - { w_proximity: 0.6,   w_gaze: 0.2,   w_position: 0.05, w_approach: 0.15 }
+  - { w_proximity: 0.4,   w_gaze: 0.4,   w_position: 0.05, w_approach: 0.15 }
+  - { w_proximity: 0.2,   w_gaze: 0.6,   w_position: 0.05, w_approach: 0.15 }
+
+gaze_sigma_yaw: [0.2, 0.3, 0.5]
+gaze_sigma_pitch: [0.3, 0.5]
+
+gaze_algorithm: [head_pose, eye_symmetry]

@@ -307,6 +307,7 @@ def run_experiment(
             gaze_sigma_yaw=params["gaze_sigma_yaw"],
             gaze_sigma_pitch=params["gaze_sigma_pitch"],
             gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
+            gaze_algorithm=params.get("gaze_algorithm", "head_pose"),
             track_bboxes=True,
         )
         # Compute the risk score and the index of the highest risk bbox

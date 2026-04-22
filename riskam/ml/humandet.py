@@ -107,24 +107,46 @@ def detect_humans(
     return human_bboxes, keypoints_np, track_ids
 
 
+# Available gaze algorithms. ``head_pose`` is the post-T1.3 algorithm
+# (yaw + pitch Gaussian). ``eye_symmetry`` is the pre-T1.3 baseline kept for
+# the T3.3.11 ablation study — yaw-only, with the documented F2 weakness
+# of false-positive "aware" readings when the head is pitched up/down.
+GAZE_ALGORITHMS: tuple[str, ...] = ("head_pose", "eye_symmetry")
+GAZE_ALGORITHM_DEFAULT = "head_pose"
+
+
 def gaze_scores(
     keypoints_np: np.ndarray | None,
     sigma_yaw: float = SIGMA_YAW_DEFAULT,
     sigma_pitch: float = SIGMA_PITCH_DEFAULT,
     frontal_pitch_ratio: float = FRONTAL_PITCH_RATIO_DEFAULT,
+    algorithm: str = GAZE_ALGORITHM_DEFAULT,
 ) -> list[float]:
-    """Compute 2-D head-pose gaze scores for each detected person.
+    """Compute gaze scores for each detected person.
+
+    ``algorithm`` selects between the post-T1.3 head-pose method (yaw + pitch
+    Gaussian — accurate) and the pre-T1.3 eye-symmetry baseline (yaw only —
+    F2 weakness retained for ablation).
 
     Returns a list of floats in [0, 1]:
-      1 = person is facing the camera directly (both yaw and pitch near zero)
-      0 = person is turned away or pitching strongly up/down
+      1 = person is facing the camera (and not pitched away, for ``head_pose``)
+      0 = person is turned away (or pitching strongly, for ``head_pose``)
     """
     if keypoints_np is None or len(keypoints_np) == 0:
         return []
-    return [
-        _headpose_gaze(keypoints_np[i], sigma_yaw, sigma_pitch, frontal_pitch_ratio)
-        for i in range(len(keypoints_np))
-    ]
+    if algorithm == "head_pose":
+        return [
+            _headpose_gaze(keypoints_np[i], sigma_yaw, sigma_pitch, frontal_pitch_ratio)
+            for i in range(len(keypoints_np))
+        ]
+    if algorithm == "eye_symmetry":
+        return [
+            _eye_symmetry_gaze(keypoints_np[i], sigma_yaw)
+            for i in range(len(keypoints_np))
+        ]
+    raise ValueError(
+        f"Unknown gaze algorithm {algorithm!r}; expected one of {GAZE_ALGORITHMS}."
+    )
 
 
 def update_velocity(
@@ -223,6 +245,35 @@ def _headpose_gaze(
     pitch_score = math.exp(-(pitch_deviation**2) / (2.0 * sigma_pitch**2))
 
     return float(yaw_score * pitch_score)
+
+
+def _eye_symmetry_gaze(kpts: np.ndarray, sigma_yaw: float) -> float:
+    """Pre-T1.3 baseline gaze: yaw-only Gaussian via eye-symmetry around the
+    nose-to-eye-midpoint axis.
+
+    Equivalent to :func:`_headpose_gaze` with the pitch factor stripped — gives
+    false-positive "aware" readings when the head is pitched up, down, or back
+    (the F2 weakness identified by SamXL). Retained as the baseline for the
+    T3.3.11 ablation study; do not use in production.
+    """
+    if kpts.shape[0] < 3:
+        return 0.0
+
+    nose = kpts[0]
+    left_eye = kpts[1]
+    right_eye = kpts[2]
+
+    if np.all(nose == 0) or np.all(left_eye == 0) or np.all(right_eye == 0):
+        return 0.0
+
+    eye_mid = (left_eye + right_eye) / 2.0
+    inter_eye_dist = np.linalg.norm(right_eye - left_eye)
+
+    if inter_eye_dist < 1.0:
+        return 0.0
+
+    yaw_offset = (nose[0] - eye_mid[0]) / inter_eye_dist
+    return float(math.exp(-(yaw_offset**2) / (2.0 * sigma_yaw**2)))
 
 
 def _approach_score(track_id: int | None) -> float:

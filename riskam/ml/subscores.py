@@ -150,14 +150,23 @@ def compute_gaze(
     sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
     sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
+    algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
 ) -> SubScoreResult:
-    """2-D head-pose gaze. Requires only RGB → always ACTIVE when persons detected."""
+    """Gaze sub-score. Requires only RGB → always ACTIVE when persons detected.
+
+    ``algorithm`` selects the underlying computation (``head_pose`` for the
+    post-T1.3 algorithm, ``eye_symmetry`` for the pre-T1.3 baseline). The
+    status is ACTIVE for either algorithm: the input-availability contract
+    is orthogonal to which algorithm was chosen. The algorithm name is
+    available in each experiment's ``params`` for ablation-aware reporting.
+    """
     values = np.asarray(
         humandet.gaze_scores(
             keypoints_np,
             sigma_yaw=sigma_yaw,
             sigma_pitch=sigma_pitch,
             frontal_pitch_ratio=frontal_pitch_ratio,
+            algorithm=algorithm,
         ),
         dtype=float,
     )
