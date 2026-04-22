@@ -24,6 +24,7 @@ from riskam.ml import featextr, humandet
 from riskam.ml.humandet import FRONTAL_PITCH_RATIO_DEFAULT, SIGMA_PITCH_DEFAULT, SIGMA_YAW_DEFAULT
 from riskam.ml.subscores import FrameInputs
 from riskam.provenance import reproducibility_metadata
+from riskam.sweep_config import SweepConfig, load_sweep_config
 from riskam import score, visualization as vis, video
 from riskam.score import RiskScorer
 
@@ -38,21 +39,10 @@ PREDICTIONS_JSON_FNAME = "predictions.json"
 RAW_PREDICTIONS_JSON_FNAME = "raw_predictions.json"
 
 
-# Parameters — updated for the new pipeline.
-# Proximity is now computed from RealSense depth when it is available for the
-# frame (via CSRobocup2023DepthIndex); otherwise the sub-score falls back to 0.
-# The first three configs keep w_approach = 0 (pre-T3.3.2 baseline); the next
-# three enable the approach sub-score so the sweep measures its contribution.
-RISK_SCORE_WEIGHTS = [
-    {"proximity": 0.7, "gaze": 0.25, "position": 0.05, "approach": 0.0},
-    {"proximity": 0.475, "gaze": 0.475, "position": 0.05, "approach": 0.0},
-    {"proximity": 0.25, "gaze": 0.7, "position": 0.05, "approach": 0.0},
-    {"proximity": 0.6, "gaze": 0.2, "position": 0.05, "approach": 0.15},
-    {"proximity": 0.4, "gaze": 0.4, "position": 0.05, "approach": 0.15},
-    {"proximity": 0.2, "gaze": 0.6, "position": 0.05, "approach": 0.15},
-]
-GAZE_SIGMA_YAW_VALUES = [0.2, 0.3, 0.5]
-GAZE_SIGMA_PITCH_VALUES = [0.3, 0.5]
+# Sweep grid (weights + gaze sigmas) now lives in a YAML config — see
+# ``configs/sweeps/default.yaml`` and ``riskam.sweep_config``. The offline
+# pipeline loads depth from ``CSRobocup2023DepthIndex``; frames with no
+# matching depth are skipped (RGB + depth is RiskAM's supported minimum).
 
 # pylint: disable=no-member
 
@@ -447,28 +437,28 @@ def run_experiments(
     output_images: bool = False,
     overwrite_existing: bool = False,
     split: str | None = None,
+    sweep_config: SweepConfig | None = None,
 ) -> None:
+    """Run every experiment cell in the given sweep config.
+
+    If ``sweep_config`` is None the default config at
+    ``configs/sweeps/default.yaml`` is loaded.
     """
-    Run the experiments for the given dataset across all parameter configs.
-    """
-    for risk_weights in RISK_SCORE_WEIGHTS:
-        for sigma_yaw in GAZE_SIGMA_YAW_VALUES:
-            for sigma_pitch in GAZE_SIGMA_PITCH_VALUES:
-                run_experiment(
-                    dataset,
-                    {
-                        "w_prox": risk_weights["proximity"],
-                        "w_gaze": risk_weights["gaze"],
-                        "w_pos": risk_weights["position"],
-                        "w_approach": risk_weights["approach"],
-                        "gaze_sigma_yaw": sigma_yaw,
-                        "gaze_sigma_pitch": sigma_pitch,
-                    },
-                    run,
-                    output_images,
-                    overwrite_existing,
-                    split=split,
-                )
+    if sweep_config is None:
+        sweep_config = load_sweep_config()
+
+    print(
+        f"+++ SWEEP '{sweep_config.name}' ({len(sweep_config)} experiments) +++"
+    )
+    for params in sweep_config.iter_experiments():
+        run_experiment(
+            dataset,
+            params,
+            run,
+            output_images,
+            overwrite_existing,
+            split=split,
+        )
 
 
 def _params_slug(params: dict) -> str:

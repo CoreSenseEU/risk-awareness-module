@@ -1,0 +1,28 @@
+# Default RiskAM experiment sweep.
+#
+# 6 weight tuples × 3 yaw σ × 2 pitch σ = 36 experiments per dataset run.
+# The weight tuples alternate `w_approach ∈ {0.0, 0.15}` so the sweep
+# exposes the T2.2 approach sub-score's contribution directly in the results.
+#
+# Loaded by riskam.sweep_config.load_sweep_config — see that module for the
+# schema (weight tuples are coupled and must sum to 1.0 within tolerance;
+# yaw/pitch sigma lists are independent axes).
+
+name: default
+description: >-
+  Default 36-cell sweep. Three "approach-off" weight tuples reproduce the
+  pre-T3.3.2 behaviour (baseline); three "approach-on" tuples enable the
+  approach sub-score at w_approach=0.15.
+
+weight_tuples:
+  # w_approach = 0.0 — baseline (pre-T3.3.2)
+  - { w_proximity: 0.7,   w_gaze: 0.25,  w_position: 0.05, w_approach: 0.0 }
+  - { w_proximity: 0.475, w_gaze: 0.475, w_position: 0.05, w_approach: 0.0 }
+  - { w_proximity: 0.25,  w_gaze: 0.7,   w_position: 0.05, w_approach: 0.0 }
+  # w_approach = 0.15 — approach sub-score enabled
+  - { w_proximity: 0.6,   w_gaze: 0.2,   w_position: 0.05, w_approach: 0.15 }
+  - { w_proximity: 0.4,   w_gaze: 0.4,   w_position: 0.05, w_approach: 0.15 }
+  - { w_proximity: 0.2,   w_gaze: 0.6,   w_position: 0.05, w_approach: 0.15 }
+
+gaze_sigma_yaw: [0.2, 0.3, 0.5]
+gaze_sigma_pitch: [0.3, 0.5]

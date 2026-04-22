@@ -13,6 +13,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 # pylint: disable=wrong-import-position
 from riskam.data.ml_datasets import DATASETS
 from riskam.experiments import inspect_predictions, run_experiments
+from riskam.sweep_config import load_sweep_config
 
 
 if __name__ == "__main__":
@@ -46,9 +47,24 @@ if __name__ == "__main__":
             "use 'val'; the final paper number is reported on 'test' once."
         ),
     )
+    parser.add_argument(
+        "--sweep-config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a YAML sweep config. If omitted, "
+            "configs/sweeps/default.yaml is loaded."
+        ),
+    )
     args = parser.parse_args()
 
     if args.action == "inspect":
         inspect_predictions(args.dataset, args.pred, args.run, split=args.split)
     elif args.action == "run":
-        run_experiments(args.dataset, args.run, split=args.split)
+        sweep = load_sweep_config(args.sweep_config) if args.sweep_config else None
+        run_experiments(
+            args.dataset,
+            args.run,
+            split=args.split,
+            sweep_config=sweep,
+        )
