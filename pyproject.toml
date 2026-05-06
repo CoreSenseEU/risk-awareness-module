@@ -1,0 +1,37 @@
+[project]
+name = "risk-awareness-module"
+version = "0.0.1"
+description = "CoreSense Risk Awareness Module — research and evaluation toolchain."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "joblib",
+    # Linear-assignment solver used by Ultralytics' ByteTrack (T1.4). Not a
+    # hard Ultralytics dep — ultralytics tries to pip-install it on first
+    # `model.track(...)` call, which fails in a uv-managed venv (no pip).
+    "lap>=0.5.12",
+    "matplotlib",
+    "numpy",
+    "opencv-contrib-python-headless",
+    "opencv-python",
+    "pillow",
+    "PyYAML",
+    "seaborn",
+    "scikit-learn",
+    "torch",
+    "torchvision",
+    "tqdm",
+    "ultralytics",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

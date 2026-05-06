@@ -12,12 +12,19 @@ from riskam.data.paths import (
     CS_ROBOCUP_2023_ML_RAW_DIR,
     CS_ROBOCUP_2023_GROUND_TRUTH_PATH,
 )
+from riskam.platforms import TIAGO_XTION
 
 DATASETS = {
     "cs_robocup_2023": {
         "class": CSRoboCup2023,
         "img_dir": CS_ROBOCUP_2023_ML_RAW_DIR,
         "ground_truth_path": CS_ROBOCUP_2023_GROUND_TRUTH_PATH,
+        # Recording platform (T2.7). Carries depth-sensor physics
+        # (near-clip dead zone, sparse-valid threshold) AND the platform's
+        # safety distance, separately from the dataset proper. Adding a
+        # second dataset recorded on the same TIAGo is then a one-liner.
+        # See riskam/platforms.py for the canonical definitions.
+        "platform": TIAGO_XTION,
     }
 }
 

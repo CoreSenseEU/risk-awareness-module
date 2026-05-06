@@ -20,6 +20,7 @@ You can find [full demo videos from the CoreSense RoboCup @ Home 2023 dataset he
 ## Hard requirements
 
 - **Inputs.** RGB + absolute depth in metres. The pipeline raises a `ValueError` at `FrameInputs.validate()` if either is missing — silent zeroing of the dominant proximity sub-score is a safety hazard, not a degradation mode. Depth is near-commodity in mobile robotics (RealSense, Azure Kinect, ZED, Orbbec) so this is not a meaningful platform restriction.
+- **Supported depth sensors.** Defaults are calibrated for active-stereo IR sensors with clean close-range data (RealSense D4xx family). Sensors with a hard near-clip dead zone (PrimeSense Xtion / Carmine) are also supported via `depth_near_clip_m` — see the parameter table below and `docs/improvement_plan.md` §3.4 for the rationale.
 - **Optional inputs.** `cmd_vel` (`geometry_msgs/Twist`) enables path-aware x_offset; absent → centre-offset fallback (status reported as `FALLBACK` on the diagnostics topic). ByteTrack-tracked frame continuity enables the approach sub-score; absent → status `UNAVAILABLE`.
 - **ROS 2.** Currently rolling-tested. The module is ROS 2-distro-agnostic but we reserve the right to change this in line with CoreSense project specs.
 - **Models.** Ultralytics YOLO11n-Pose (`ml_models/yolo11n-pose.pt`). ByteTrack is bundled with Ultralytics; no extra dependency.
@@ -42,7 +43,7 @@ cd ..
 colcon build --packages-select riskam riskam_ros riskam_msgs riskam_bringup
 ```
 
-For the Python-only side (offline experiments, evaluation framework), set up the virtualenv as described in [Installation & prerequisites](#installation--prerequisites) below.
+For the Python-only side (offline experiments, evaluation framework), set up the uv-managed environment as described in [Installation & prerequisites](#installation--prerequisites) below. The two paths are independent: ROS deployment uses `riskam/setup.py` via colcon and is unaffected by `uv`.
 
 ---
 
@@ -92,6 +93,9 @@ The values below are the source-of-truth defaults from `riskam_bringup/config/ri
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
 | `d_safe` | `1.5` (metres) | Safety distance. Persons at or beyond `d_safe` score 0 on proximity; the score rises linearly to 1 at the camera. Tune to your robot's stopping distance + a margin |
+| `depth_near_clip_m` | `0.0` (metres) | Sensor near-clip dead zone (T2.7). `0` → off — RealSense behaviour: a bbox with all-zero depth falls back to "far" (proximity 0). For sensors with a hard near-clip (e.g. Xtion/Carmine ≈ 0.6 m) set this to the spec-sheet value; RiskAM will then treat zero-depth in a *large* bbox as "person too close to measure" and emit max proximity instead of inverting the safety direction |
+| `near_clip_bbox_min_frac` | `0.05` | Minimum bbox area as a fraction of the full frame for the close-fallback to fire. Ignored when `depth_near_clip_m == 0`. Guards against tiny noise bboxes triggering max risk |
+| `near_clip_valid_frac_max` | `0.0` | Maximum valid-pixel fraction within a bbox for the close-fallback to fire. `0.0` → strict zero (RealSense pre-T2.7 contract). Set to a small positive value (e.g. `0.05` for Xtion) to also fire on "mostly empty" bboxes whose few valid pixels are likely background bleed-through, not the person |
 
 #### Gaze (2-D head pose)
 
@@ -154,7 +158,20 @@ The values below are the source-of-truth defaults from `riskam_bringup/config/ri
 If you are integrating RiskAM onto a robot and want a working risk score on Day 1, this is the short version:
 
 1. **You need RGB + depth.** Wire up your sensor and point `camera_topic` / `depth_topic` at it.
-2. **Tune `d_safe` for your platform.** Default 1.5 m is a reasonable starting point for a Ridgeback/TIAGo-class robot moving at indoor speeds. Increase it for faster robots or larger inertia.
+2. **Pick or derive your platform calibration.** RiskAM ships with named factory presets for the hardware it has been validated on, defined in [`riskam/platforms.py`](riskam/platforms.py). If yours matches, copy the values straight into `riskam_config.yml`; otherwise derive them from the sensor spec sheet and your robot's stopping distance.
+
+   | Platform preset | `d_safe` | `depth_near_clip_m` | `near_clip_valid_frac_max` | Hardware |
+   |-----------------|----------|---------------------|----------------------------|----------|
+   | `RIDGEBACK_D435` (SamXL — the shipped defaults) | `1.5` | `0.0` | `0.0` | Clearpath Ridgeback (~70 kg, ~1 m/s indoor) + Intel RealSense D4xx |
+   | `TIAGO_XTION` (cs_robocup_2023) | `2.5` | `0.6` | `0.05` | PAL TIAGo (~70 kg, ~1 m/s indoor) + PAL Xtion / PrimeSense Carmine |
+
+   **Custom platform** — derive from physics:
+   - `d_safe` ≈ stopping distance at max speed + safety margin. ~1.5 m for slow indoor mobile (~1 m/s); larger for faster or heavier robots.
+   - `depth_near_clip_m` from the sensor spec sheet. `0` for active-stereo (RealSense, Azure Kinect, ZED) — clean close-range data, "no measurement in bbox = person far away" is correct. The published near-clip for structured-light sensors (Xtion/Carmine ≈ 0.6 m, Astra ≈ 0.6 m) — RiskAM will then treat "all-zero depth in a person-sized bbox" as "person too close to measure" instead of inverting the safety direction.
+   - `near_clip_valid_frac_max`: `0` if your sensor delivers clean data; ~`0.05` for structured-light sensors that produce noisy zero-fill plus background bleed-through. If unsure, leave at `0` and bump only if you see "person clearly close, but proximity stays zero" patterns on `/riskam/diagnostics`.
+
+   If you bring up a new platform you'd like RiskAM to ship a preset for, contributions to `riskam/platforms.py` are welcome — keep the dataclass, document the values, and add a sanity test in `tests/test_platforms.py`.
+
 3. **Optional: wire `/cmd_vel`.** If your robot publishes velocity, the x_offset sub-score becomes path-aware (Gaussian around the robot's lane of motion). Without it, x_offset uses a centre-offset heuristic and reports `FALLBACK` on diagnostics.
 4. **Watch `/riskam/diagnostics`.** Any sub-score reporting `unavailable` or `fallback` should be expected (e.g. `cmd_vel` not subscribed) — if it isn't expected, something upstream is misconfigured.
 5. **You should not need to run a hyperparameter sweep.** The shipped weights are calibrated against the cs_robocup_2023 dataset; the research-methodology tooling in the next section is for the RiskAM authors when publishing, not for you.
@@ -228,29 +245,36 @@ annotated = vis.visualize_risk(
 
 Tested on Ubuntu 24.04 with ROS 2 rolling. [Installation guide for `rolling`](https://docs.ros.org/en/rolling/Installation.html).
 
-Set up a virtualenv and install the requirements:
+The Python-only workflow (offline experiments, evaluation framework, tests) is managed with [uv](https://docs.astral.sh/uv/). Dependencies are declared in `pyproject.toml` and locked in `uv.lock`. The ROS build path is independent: `colcon build` uses `riskam/setup.py` and ignores `pyproject.toml` entirely.
+
+Install uv (if not already present):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Sync the environment (creates `.venv/`, installs runtime + `dev` deps from the lockfile):
 
 ```bash
 cd <riskam_root_dir>
-virtualenv env_riskam
-source env_riskam/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
 
-Link the system's `rosbag2_py` to the virtualenv:
+Run any command in the env via `uv run` (no manual `activate` needed):
+
+```bash
+uv run pytest
+uv run python scripts/run_experiments.py run cs_robocup_2023 --run RB_02
+```
+
+Link the system's `rosbag2_py` into the uv venv (needed by `scripts/extract_ros2_dataset.py`):
 
 ```bash
 echo "/opt/ros/<ros2_distro>/lib/python3.x/site-packages" \
-  > <riskam_root_dir>/env_riskam/lib/python3.x/site-packages/ros2.pth
+  > <riskam_root_dir>/.venv/lib/python3.x/site-packages/ros2.pth
 ```
 
-Activate the environment before each use:
-
-```bash
-source env_riskam/bin/activate
-```
-
-Make sure ROS 2 is sourced before extracting data from ROS 2 bags:
+Source ROS 2 before extracting data from ROS 2 bags:
 
 ```bash
 source /opt/ros/<ros2_distro>/setup.bash
@@ -287,8 +311,16 @@ cd <riskam_root_dir>
 Then extract:
 
 ```bash
-python scripts/extract_ros2_dataset.py cs_robocup_2023
+uv run python scripts/extract_ros2_dataset.py cs_robocup_2023
 ```
+
+On macOS (no native ROS 2), use the Docker wrapper instead:
+
+```bash
+scripts/extract_ros2_dataset_macos.sh cs_robocup_2023
+```
+
+It runs extraction inside a `ros:rolling-perception` container with the repo bind-mounted; output lands on the host at `ml_datasets/cs_robocup_2023/raw_dataset/`. First invocation pulls the image (~1.5 GB).
 
 You can run extraction per `RB_##` if disk space is tight; the script processes whatever runs are present.
 
@@ -299,7 +331,7 @@ You can run extraction per `RB_##` if disk space is tight; the script processes 
 ### Demo video for a specific run
 
 ```bash
-python scripts/test_run_with_video.py cs_robocup_2023 RB_##
+uv run python scripts/test_run_with_video.py cs_robocup_2023 RB_##
 ```
 
 Outputs to `test_results/videos/`:
@@ -307,19 +339,20 @@ Outputs to `test_results/videos/`:
 - `cs_robocup_2023_RB_##_risk.avi` — the RiskAM output overlay, with:
   1. Color-coded scene risk in the top-right corner
   2. Bounding boxes for all detected humans
-  3. Each bbox color-coded by gaze:
-     - Red: pose undetectable, or person likely not aware of the robot
-     - Yellow: pose detectable, person possibly aware
-     - Green: pose detectable, person almost certainly aware
+  3. Each bbox color-coded by gaze along a continuous red↔white gradient:
+     - Red (gaze ≈ 0): pose undetectable, or person likely *not* aware of the robot
+     - White (gaze ≈ 1): person clearly aware (looking at the camera)
+     - Pinks in between for ambiguous gazes
+     - A black outline is drawn underneath each bbox so it stays visible on red walls / shirts and on white / overexposed backgrounds
   4. The bbox driving the scene-risk maximum is marked with an asterisk
-  5. Points fade to dark grey with increasing depth
+  5. Each bbox interior is tinted red with opacity proportional to its proximity sub-score (`α = proximity · 0.7`): red = close = danger, transparent = far = safe. Per-bbox uniform — driven by the proximity sub-score, not raw per-pixel depth — so Xtion-class sensor noise does not splotch the overlay. T2.7 close-fallback bboxes ("person too close to measure") render as full red panels. Outside bboxes, the original scene is untouched
 
 ### Experiments
 
 Run a sweep on one run:
 
 ```bash
-python scripts/run_experiments.py run cs_robocup_2023 --run RB_##
+uv run python scripts/run_experiments.py run cs_robocup_2023 --run RB_##
 ```
 
 Or all populated runs sequentially:

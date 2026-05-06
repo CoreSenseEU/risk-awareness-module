@@ -28,46 +28,64 @@ plt.rcParams.update(
 )
 
 
+_INTERIOR_RED_BGR = np.array([0, 0, 255], dtype=np.float32)
+# Cap on the bbox-interior red overlay so the person stays visible even at
+# max proximity. 0.7 mirrors the strength of the legacy depth-fog blend.
+_INTERIOR_MAX_ALPHA = 0.7
+
+
 def visualize_risk(
     image,
     bboxes: list[tuple[int, int, int, int]],
-    depth_viz: np.ndarray | None,
     risk_features: dict[str, np.ndarray],
     risk_score: float,
     max_risk_idx: int,
 ):
-    """Overlay depth, bounding boxes, and risk score on the RGB image.
+    """Overlay bounding boxes, proximity-red bbox interiors, and the risk score.
 
-    Parameters
-    ----------
-    depth_viz : np.ndarray (H, W) uint8 or None
-        Closer = brighter map produced by ``depth.depth_to_visualization()``.
-        When None (no depth available), the depth overlay is skipped.
+    Each detected human's bbox interior is tinted red with opacity proportional
+    to its proximity sub-score: ``α = proximity · 0.7``. Close persons (high
+    proximity, including T2.7 close-fallback cases at proximity 1.0) appear as
+    vivid red panels; far persons (proximity 0) leave the underlying image
+    untouched. The semantic — *red = close = danger* — is uniform per bbox,
+    driven by the same per-bbox value that feeds the proximity sub-score, so
+    the visualisation tracks the score rather than the raw depth field. This
+    also sidesteps Xtion-class sensors' heavy zero-fill noise: a noisy raw
+    depth field inside a bbox does not splotch the overlay because the overlay
+    reads from the (cleaner) per-bbox proximity score instead.
     """
-    if depth_viz is not None:
-        # Normalise to [0,1] — depth_viz is already uint8 in [0,255].
-        norm_depth = depth_viz.astype(np.float32) / 255.0
-        # Distant pixels fade to dark gray; close pixels remain vivid.
-        overlay = np.full_like(image, (50, 50, 50))
-        # Invert: depth_viz=255 means close=bright; we want distant=dark overlay.
-        soft_weight = (1.0 - norm_depth) * 0.85
-        image = (
-            image.astype(np.float32) * (1.0 - soft_weight[..., None])
-            + overlay.astype(np.float32) * soft_weight[..., None]
+    if bboxes:
+        proximities = risk_features.get(
+            "proximity", np.zeros(len(bboxes), dtype=float)
         )
+        image = image.astype(np.float32)
+        for i, (x1, y1, x2, y2) in enumerate(bboxes):
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(image.shape[1], x2)
+            y2 = min(image.shape[0], y2)
+            if x2 <= x1 or y2 <= y1:
+                continue
+            alpha = float(np.clip(proximities[i], 0.0, 1.0)) * _INTERIOR_MAX_ALPHA
+            if alpha <= 0.0:
+                continue
+            region = image[y1:y2, x1:x2]
+            image[y1:y2, x1:x2] = (1.0 - alpha) * region + alpha * _INTERIOR_RED_BGR
         image = np.clip(image, 0, 255).astype(np.uint8)
 
-    # Draw bounding boxes with color based on gaze score
+    # Draw bounding boxes with a continuous red↔white gradient by gaze score.
+    # gaze=0 (unaware) → pure red (BGR 0,0,255); gaze=1 (aware) → white
+    # (BGR 255,255,255); intermediate → pinks. A thicker black outline is
+    # drawn underneath so the bbox stays visible on red walls / shirts and
+    # on white / overexposed backgrounds — both extremes of the gradient
+    # would otherwise blend into common scene content.
     for i, (x1, y1, x2, y2) in enumerate(bboxes):
-        # Ensure coordinates are integers
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-        gaze_score = risk_features["gaze"][i]
-        if gaze_score == 0:
-            color = (0, 0, 255)  # red
-        elif gaze_score == 1:
-            color = (0, 255, 0)  # green
-        else:
-            color = (0, 255, 255)  # yellow
+        gaze_score = float(np.clip(risk_features["gaze"][i], 0.0, 1.0))
+        bg = int(round(255 * gaze_score))
+        color = (bg, bg, 255)  # BGR
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 0), 4)
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
 
     # Add risk score overlay in the top right corner

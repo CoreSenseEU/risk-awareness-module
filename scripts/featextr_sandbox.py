@@ -4,6 +4,13 @@ featextr_sandbox.py
 A sandbox for risk awareness feature extraction. Hardcoded paths below point
 at the RB_XX runs of the CS RoboCup 2023 dataset; the nearest matching depth
 frame is loaded for each RGB frame.
+
+The cs_robocup_2023 dataset was recorded on the TIAGo + PAL Xtion platform
+(``riskam.platforms.TIAGO_XTION``) — structured light with a ~0.6 m near-clip
+dead zone, heavy zero-fill, and a 2.5 m safety distance. The platform object
+carries every parameter the sandbox needs, pulled from
+``DATASETS['cs_robocup_2023']['platform']``. See ``docs/improvement_plan.md``
+§3.4 for the full rationale.
 """
 
 import sys
@@ -15,6 +22,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 # pylint: disable=wrong-import-position
 from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
+from riskam.data.ml_datasets import DATASETS
 from riskam.ml import featextr
 from riskam.ml.subscores import FrameInputs
 from riskam import visualization as vis
@@ -22,6 +30,9 @@ from riskam.score import RiskScorer
 
 TEST_RESULTS_DIR = Path("test_results")
 RISK_SCORE_DIR = TEST_RESULTS_DIR / "risk_scores"
+
+# Recording-platform calibration (see module docstring).
+PLATFORM = DATASETS["cs_robocup_2023"]["platform"]
 
 if __name__ == "__main__":
     IMG_PATHS = [
@@ -37,6 +48,12 @@ if __name__ == "__main__":
 
     scorer = RiskScorer()
     RISK_SCORE_DIR.mkdir(exist_ok=True, parents=True)
+
+    # The sandbox is a per-frame visual sanity check, not a temporal sequence:
+    # the 8 frames come from unrelated runs. RiskScorer averages over the last
+    # ``n_frames_aggregate`` frames, which would smear a high-risk close-up
+    # frame into a "scene" of unrelated low-risk ones. We reset the scorer
+    # between frames so each one's score reflects only that frame.
 
     # One depth index per RB run, built lazily.
     depth_indices: dict[str, CSRobocup2023DepthIndex] = {}
@@ -56,8 +73,12 @@ if __name__ == "__main__":
             print(f"No matching depth frame for {img_path}; skipping")
             continue
 
+        scorer.reset()
         result = featextr.extract(
             FrameInputs(rgb=cv_image, depth_m=depth_image_m, cmd_vel=None),
+            d_safe=PLATFORM.d_safe_m,
+            depth_near_clip_m=PLATFORM.sensor.near_clip_m,
+            near_clip_valid_frac_max=PLATFORM.sensor.valid_frac_max,
             track_bboxes=False,
         )
         risk_score, max_risk_idx, _ = scorer.score(
@@ -67,7 +88,6 @@ if __name__ == "__main__":
         annotated = vis.visualize_risk(
             cv_image,
             result.human_bboxes,
-            result.depth_viz,
             result.features,
             risk_score,
             max_risk_idx,

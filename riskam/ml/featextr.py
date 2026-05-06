@@ -25,7 +25,12 @@ import numpy as np
 
 from riskam.feature_cache import CachedFrameFeatures, FeatureCache
 from riskam.ml import depth as depth_mod, humandet
-from riskam.ml.depth import D_SAFE_DEFAULT
+from riskam.ml.depth import (
+    D_SAFE_DEFAULT,
+    NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT,
+    NEAR_CLIP_M_DEFAULT,
+    NEAR_CLIP_VALID_FRAC_MAX_DEFAULT,
+)
 from riskam.ml.subscores import (
     FrameExtraction,
     FrameInputs,
@@ -44,12 +49,18 @@ from riskam.ml.subscores import (
 def extract_primitives(
     inputs: FrameInputs,
     d_safe: float = D_SAFE_DEFAULT,
+    depth_near_clip_m: float = NEAR_CLIP_M_DEFAULT,
+    near_clip_bbox_min_frac: float = NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT,
+    near_clip_valid_frac_max: float = NEAR_CLIP_VALID_FRAC_MAX_DEFAULT,
     track_bboxes: bool = True,
 ) -> CachedFrameFeatures:
     """Run YOLO/pose detection, ByteTrack, and depth-per-bbox extraction.
 
     Output is determined by ``(model_state, rgb, depth_m)`` and the
-    ``track_bboxes`` flag — independent of any scoring parameters.
+    ``track_bboxes`` flag for the parameter-independent half. ``d_safe`` and
+    the close-fallback knobs (``depth_near_clip_m``, ``near_clip_bbox_min_frac``)
+    only affect the missing-depth fallback inside :func:`extract_bbox_depths`,
+    so cached primitives reflect the calibration in force at cache write time.
     """
     inputs.validate()
 
@@ -68,7 +79,12 @@ def extract_primitives(
         )
 
     bbox_depths_m = depth_mod.extract_bbox_depths(
-        inputs.depth_m, bboxes, d_safe=d_safe
+        inputs.depth_m,
+        bboxes,
+        d_safe=d_safe,
+        depth_near_clip_m=depth_near_clip_m,
+        near_clip_bbox_min_frac=near_clip_bbox_min_frac,
+        near_clip_valid_frac_max=near_clip_valid_frac_max,
     )
     return CachedFrameFeatures(
         human_bboxes=bboxes,
@@ -170,6 +186,9 @@ def extract_features(
 def extract(
     inputs: FrameInputs,
     d_safe: float = D_SAFE_DEFAULT,
+    depth_near_clip_m: float = NEAR_CLIP_M_DEFAULT,
+    near_clip_bbox_min_frac: float = NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT,
+    near_clip_valid_frac_max: float = NEAR_CLIP_VALID_FRAC_MAX_DEFAULT,
     gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
@@ -177,7 +196,14 @@ def extract(
     track_bboxes: bool = True,
 ) -> FrameExtraction:
     """Run the full per-frame feature-extraction pipeline (no cache)."""
-    primitives = extract_primitives(inputs, d_safe=d_safe, track_bboxes=track_bboxes)
+    primitives = extract_primitives(
+        inputs,
+        d_safe=d_safe,
+        depth_near_clip_m=depth_near_clip_m,
+        near_clip_bbox_min_frac=near_clip_bbox_min_frac,
+        near_clip_valid_frac_max=near_clip_valid_frac_max,
+        track_bboxes=track_bboxes,
+    )
     return extract_features(
         primitives,
         image_shape=inputs.rgb.shape[:2],
@@ -196,6 +222,9 @@ def extract_with_cache(
     run: str,
     rgb_stem: str,
     d_safe: float = D_SAFE_DEFAULT,
+    depth_near_clip_m: float = NEAR_CLIP_M_DEFAULT,
+    near_clip_bbox_min_frac: float = NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT,
+    near_clip_valid_frac_max: float = NEAR_CLIP_VALID_FRAC_MAX_DEFAULT,
     gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
@@ -210,7 +239,12 @@ def extract_with_cache(
     primitives = cache.get(run, rgb_stem)
     if primitives is None:
         primitives = extract_primitives(
-            inputs, d_safe=d_safe, track_bboxes=track_bboxes
+            inputs,
+            d_safe=d_safe,
+            depth_near_clip_m=depth_near_clip_m,
+            near_clip_bbox_min_frac=near_clip_bbox_min_frac,
+            near_clip_valid_frac_max=near_clip_valid_frac_max,
+            track_bboxes=track_bboxes,
         )
         cache.put(run, rgb_stem, primitives)
     return extract_features(
@@ -230,6 +264,9 @@ def extract_human_risk_awareness_features(
     depth_image_m: np.ndarray,
     cmd_vel: RobotVelocity | None = None,
     d_safe: float = D_SAFE_DEFAULT,
+    depth_near_clip_m: float = NEAR_CLIP_M_DEFAULT,
+    near_clip_bbox_min_frac: float = NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT,
+    near_clip_valid_frac_max: float = NEAR_CLIP_VALID_FRAC_MAX_DEFAULT,
     gaze_sigma_yaw: float = humandet.SIGMA_YAW_DEFAULT,
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
@@ -240,6 +277,9 @@ def extract_human_risk_awareness_features(
     return extract(
         FrameInputs(rgb=image, depth_m=depth_image_m, cmd_vel=cmd_vel),
         d_safe=d_safe,
+        depth_near_clip_m=depth_near_clip_m,
+        near_clip_bbox_min_frac=near_clip_bbox_min_frac,
+        near_clip_valid_frac_max=near_clip_valid_frac_max,
         gaze_sigma_yaw=gaze_sigma_yaw,
         gaze_sigma_pitch=gaze_sigma_pitch,
         gaze_frontal_pitch_ratio=gaze_frontal_pitch_ratio,

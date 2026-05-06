@@ -232,6 +232,9 @@ def run_experiment(
 
     # Establish the images directory and per-dataset depth index
     img_dir = DATASETS[dataset]["img_dir"]
+    # Recording-platform metadata (T2.7): sensor physics + safety distance.
+    # See riskam/platforms.py for the canonical definitions.
+    platform = DATASETS[dataset]["platform"]
     depth_index = None
 
     if dataset == "cs_robocup_2023":
@@ -333,6 +336,9 @@ def run_experiment(
                 feature_cache,
                 run,
                 img_path.stem,
+                d_safe=platform.d_safe_m,
+                depth_near_clip_m=platform.sensor.near_clip_m,
+                near_clip_valid_frac_max=platform.sensor.valid_frac_max,
                 gaze_sigma_yaw=params["gaze_sigma_yaw"],
                 gaze_sigma_pitch=params["gaze_sigma_pitch"],
                 gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
@@ -342,6 +348,9 @@ def run_experiment(
         else:
             result = featextr.extract(
                 frame_inputs,
+                d_safe=platform.d_safe_m,
+                depth_near_clip_m=platform.sensor.near_clip_m,
+                near_clip_valid_frac_max=platform.sensor.valid_frac_max,
                 gaze_sigma_yaw=params["gaze_sigma_yaw"],
                 gaze_sigma_pitch=params["gaze_sigma_pitch"],
                 gaze_frontal_pitch_ratio=FRONTAL_PITCH_RATIO_DEFAULT,
@@ -375,7 +384,6 @@ def run_experiment(
             annotated = vis.visualize_risk(
                 cv_image,
                 result.human_bboxes,
-                result.depth_viz,
                 result.features,
                 risk_score,
                 max_risk_idx,

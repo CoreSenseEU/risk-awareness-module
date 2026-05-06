@@ -11,7 +11,10 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 # pylint: disable=wrong-import-position
-from riskam.data.ml_datasets import DATASETS
+# Note: we deliberately do NOT import riskam.data.ml_datasets here, since it
+# pulls torch transitively. Extraction runs in a ROS-only environment (e.g.
+# the macOS Docker wrapper) where torch is not installed. Keep this script's
+# imports torch-free.
 from riskam.data.extract_cs_robocup import extract_cs_robocup2023
 
 
@@ -21,7 +24,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "dataset",
         type=str,
-        choices=DATASETS.keys(),
+        choices=["cs_robocup_2023"],
         help="The dataset to extract.",
         default="cs_robocup_2023",
     )

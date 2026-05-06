@@ -41,7 +41,12 @@ import message_filters
 
 from riskam import visualization as vis
 from riskam.ml import depth as depth_mod, featextr
-from riskam.ml.depth import D_SAFE_DEFAULT
+from riskam.ml.depth import (
+    D_SAFE_DEFAULT,
+    NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT,
+    NEAR_CLIP_M_DEFAULT,
+    NEAR_CLIP_VALID_FRAC_MAX_DEFAULT,
+)
 from riskam.ml.humandet import (
     FRONTAL_PITCH_RATIO_DEFAULT,
     SIGMA_PITCH_DEFAULT,
@@ -73,6 +78,16 @@ class RiskAM(Node):
         self.declare_parameter("w_position", W_POSITION_EMPIRICAL_DEFAULT)
         self.declare_parameter("w_approach", W_APPROACH_EMPIRICAL_DEFAULT)
         self.declare_parameter("d_safe", D_SAFE_DEFAULT)
+        # Sensor near-clip dead-zone handling. Defaults preserve pre-T2.7
+        # RealSense behaviour (depth_near_clip_m = 0 disables the fallback).
+        # See riskam/ml/depth.py for the semantics.
+        self.declare_parameter("depth_near_clip_m", NEAR_CLIP_M_DEFAULT)
+        self.declare_parameter(
+            "near_clip_bbox_min_frac", NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT
+        )
+        self.declare_parameter(
+            "near_clip_valid_frac_max", NEAR_CLIP_VALID_FRAC_MAX_DEFAULT
+        )
         self.declare_parameter("crowd_alpha", CROWD_ALPHA_DEFAULT)
         self.declare_parameter("n_frames_aggregate", N_FRAMES_AGGREGATE)
         self.declare_parameter("gaze_sigma_yaw", SIGMA_YAW_DEFAULT)
@@ -90,6 +105,9 @@ class RiskAM(Node):
         self.w_position = p("w_position").value
         self.w_approach = p("w_approach").value
         self.d_safe = p("d_safe").value
+        self.depth_near_clip_m = p("depth_near_clip_m").value
+        self.near_clip_bbox_min_frac = p("near_clip_bbox_min_frac").value
+        self.near_clip_valid_frac_max = p("near_clip_valid_frac_max").value
         self.visualize_image = p("visualize_image").value
         self.gaze_sigma_yaw = p("gaze_sigma_yaw").value
         self.gaze_sigma_pitch = p("gaze_sigma_pitch").value
@@ -210,6 +228,9 @@ class RiskAM(Node):
         result = featextr.extract(
             FrameInputs(rgb=cv_image, depth_m=depth_image_m, cmd_vel=cmd_vel),
             d_safe=self.d_safe,
+            depth_near_clip_m=self.depth_near_clip_m,
+            near_clip_bbox_min_frac=self.near_clip_bbox_min_frac,
+            near_clip_valid_frac_max=self.near_clip_valid_frac_max,
             gaze_sigma_yaw=self.gaze_sigma_yaw,
             gaze_sigma_pitch=self.gaze_sigma_pitch,
             gaze_frontal_pitch_ratio=self.gaze_frontal_pitch_ratio,
@@ -240,7 +261,6 @@ class RiskAM(Node):
             annotated = vis.visualize_risk(
                 cv_image,
                 result.human_bboxes,
-                result.depth_viz,
                 result.features,
                 risk_score,
                 max_risk_idx,

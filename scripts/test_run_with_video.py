@@ -45,6 +45,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     IMG_DIR = DATASETS[args.dataset]["img_dir"]
+    platform = DATASETS[args.dataset]["platform"]
     depth_index: CSRobocup2023DepthIndex | None = None
     if args.dataset == "cs_robocup_2023":
         IMG_DIR = IMG_DIR / args.run / "rgb"
@@ -71,6 +72,9 @@ if __name__ == "__main__":
 
         result = featextr.extract(
             FrameInputs(rgb=cv_image, depth_m=depth_image_m, cmd_vel=None),
+            d_safe=platform.d_safe_m,
+            depth_near_clip_m=platform.sensor.near_clip_m,
+            near_clip_valid_frac_max=platform.sensor.valid_frac_max,
             track_bboxes=True,
         )
         risk_score, max_risk_idx, _ = scorer.score(
@@ -84,7 +88,6 @@ if __name__ == "__main__":
         annotated = vis.visualize_risk(
             cv_image,
             result.human_bboxes,
-            result.depth_viz,
             result.features,
             risk_score,
             max_risk_idx,
