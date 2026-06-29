@@ -28,7 +28,7 @@
     # will then treat "all-zero depth in a person-sized bbox" as "person too
     # close to measure" → max proximity, instead of the legacy "nothing
     # there → score 0" semantic that inverts the safety direction on those
-    # sensors. See docs/improvement_plan.md §3.4.
+    # sensors. See docs/sensors-and-platforms.md.
     depth_near_clip_m: 0.0
     # Minimum bbox area as a fraction of the full frame for the close-fallback
     # to fire. Ignored when ``depth_near_clip_m == 0``.

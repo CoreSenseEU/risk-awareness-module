@@ -4,10 +4,6 @@
         "defaultMode": "bypassPermissions",
         "additionalDirectories": [],
         "deny": [
-            "Edit(/**)",
-            "Edit(~/**)",
-            "Write(/**)",
-            "Write(~/**)",
             "Read(/etc/**)",
             "Read(/root/**)",
             "Read(~/.ssh/**)",
@@ -50,9 +46,9 @@
             "Bash(kill -9 1*)"
         ],
         "allow": [
-            "Edit(~/coresense/risk-awareness-module/**)",
-            "Write(~/coresense/risk-awareness-module/**)",
-            "Read(~/coresense/risk-awareness-module/**)",
+            "Edit(/**)",
+            "Write(/**)",
+            "Read(/**)",
             "Read(/usr/share/**)",
             "Read(/usr/lib/**)",
             "Read(/tmp/**)",

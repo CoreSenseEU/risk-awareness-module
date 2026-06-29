@@ -18,3 +18,6 @@ test_results/
 ros_datasets/
 ml_datasets/*/raw_dataset/
 ml_datasets/*/features/
+
+# Private notes not to be committed
+private/

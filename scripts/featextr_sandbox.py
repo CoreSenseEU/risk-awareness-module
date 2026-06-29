@@ -9,8 +9,8 @@ The cs_robocup_2023 dataset was recorded on the TIAGo + PAL Xtion platform
 (``riskam.platforms.TIAGO_XTION``) — structured light with a ~0.6 m near-clip
 dead zone, heavy zero-fill, and a 2.5 m safety distance. The platform object
 carries every parameter the sandbox needs, pulled from
-``DATASETS['cs_robocup_2023']['platform']``. See ``docs/improvement_plan.md``
-§3.4 for the full rationale.
+``DATASETS['cs_robocup_2023']['platform']``. See
+``docs/sensors-and-platforms.md`` for the full rationale.
 """
 
 import sys
