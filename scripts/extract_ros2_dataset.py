@@ -15,7 +15,10 @@ sys.path.append(str(Path(__file__).parent.parent))
 # pulls torch transitively. Extraction runs in a ROS-only environment (e.g.
 # the macOS Docker wrapper) where torch is not installed. Keep this script's
 # imports torch-free.
-from riskam.data.extract_cs_robocup import extract_cs_robocup2023
+from riskam.data.extract_cs_robocup import (
+    extract_cs_robocup2023,
+    extract_cs_robocup2023_aux,
+)
 
 
 if __name__ == "__main__":
@@ -24,8 +27,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "dataset",
         type=str,
-        choices=["cs_robocup_2023"],
-        help="The dataset to extract.",
+        choices=["cs_robocup_2023", "cs_robocup_2023_aux"],
+        help=(
+            "The dataset to extract. The '_aux' variant extracts only "
+            "odometry twists + camera intrinsics (fast, no image decoding) "
+            "for the kinematic metric."
+        ),
         default="cs_robocup_2023",
     )
 
@@ -33,3 +40,5 @@ if __name__ == "__main__":
 
     if args.dataset == "cs_robocup_2023":
         extract_cs_robocup2023()
+    elif args.dataset == "cs_robocup_2023_aux":
+        extract_cs_robocup2023_aux()

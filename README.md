@@ -121,6 +121,14 @@ scripts/run_experiments_cs_robocup_2023_all.sh
 
 Outputs land under `exp_results/<dataset>/{all,val,test}/<run>/<params_slug>/`.
 
+Experimental metrics (kinematic hazard × awareness + ordinal calibration —
+see [`docs/experimental-metrics.md`](docs/experimental-metrics.md)):
+
+```bash
+uv run python scripts/metric_lab.py populate --device mps   # one-time YOLO pass
+uv run --group experiments python scripts/metric_lab.py all # table → fit → evaluate
+```
+
 ---
 
 ## Using RiskAM in a Python file

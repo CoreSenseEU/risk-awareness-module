@@ -29,6 +29,9 @@ dependencies = [
 dev = [
     "pytest",
 ]
+experiments = [
+    "statsmodels>=0.14.6",
+]
 
 [tool.uv]
 package = false

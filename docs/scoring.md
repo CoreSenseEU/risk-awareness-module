@@ -6,8 +6,10 @@ aggregate into a single scene risk. For how a frame reaches these functions see
 proximity see [`sensors-and-platforms.md`](sensors-and-platforms.md).
 
 The exploratory metric-redesign notes (units, referent, generalisation across
-platforms) live in [`private/paper-plan.md`](private/paper-plan.md); this
-document describes the **currently implemented** score.
+platforms) live in [`private/paper-plan.md`](private/paper-plan.md); their
+offline implementation (kinematic hazard × awareness, ordinal calibration) is
+described in [`experimental-metrics.md`](experimental-metrics.md). This
+document describes the **currently deployed** score.
 
 ---
 

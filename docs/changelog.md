@@ -9,6 +9,51 @@ Item codes (T1.x / T2.x / T3.x) refer to the original improvement-plan roadmap.
 
 ---
 
+## 2026-07-02 — Experimental metrics: kinematic hazard (A) + ordinal calibration (B1)
+
+Offline implementation of both paper-plan directions as a research track that
+leaves the deployed pipeline untouched. See
+[`experimental-metrics.md`](experimental-metrics.md) for the full reference.
+
+- **`riskam/kinematics.py`** — Direction A: bearing from bbox centre-x +
+  camera intrinsics, planar per-track relative-velocity fits (explicit frame
+  timestamps, unlike the wall-clock `humandet` history), CPA extrapolation
+  (`t_cpa`, `d_min`), trajectory hazard (max of `closeness(t)·exp(−t/τ)`
+  over the predicted pass — continuous at v→0, unlike scoring only the
+  CPA moment), awareness-modulated fusion `hazard · (1 + β(1−awareness))`.
+  Degradation ladder full → static_odom → static (≡ deployed proximity) →
+  dead_zone; depth sentinels censored from velocity fits. Two smoothing
+  stages against detector/depth noise: per-track channel EMA
+  (`ema_tau_s` 0.5 s) and an instant-attack/exponential-release scene
+  smoother (`release_tau_s` 0.5 s) that bridges single-frame detection
+  dropouts. The release is evidence-bounded (`hold_max_s` 1.0 s, the
+  track-bridging horizon): it never extrapolates further than that past
+  the last detection, so departures leave no ghost risk in empty frames
+  (the video overlay tags held values with `hold`). Result: 2–4× *less*
+  frame-to-frame flicker than the deployed metric on every run, and the
+  unfitted physics metric's Spearman ρ edged past the hand-tuned
+  baseline (+0.758 vs +0.750 on test).
+- **`riskam/ordinal.py` + `riskam/proba_metrics.py`** — Direction B1:
+  proportional-odds logit (statsmodels, `experiments` dep group) persisted as
+  numpy-only JSON fits, LR ablation tests; Brier/log-loss/RPS/cumulative-AUC/
+  reliability+ECE/Spearman.
+- **`riskam/scene_table.py` + `scripts/metric_lab.py`** — cache → per-frame
+  scene feature table; models m0/m0c/a_raw/a_cal/b1_sub/b1_kin fit on val,
+  frozen report on test; artifacts under
+  `exp_results/cs_robocup_2023/metric_lab/`. Absorbs and replaces the
+  exploratory `scripts/metric_probe.py`. A `video` subcommand renders
+  per-run MP4s annotated with the Direction-A channels only (no ground
+  truth, no deployed metric) for unbiased qualitative review.
+- **Aux bag extraction** — `extract_ros2_dataset.py cs_robocup_2023_aux`
+  writes per-run `odom.csv` (`/mobile_base_controller/odom`; `/cmd_vel` is
+  empty in RB_01/06/07) and `camera_info.json` (fx = 530.2 @ 640 px);
+  `CSRobocup2023OdomIndex` + `load_camera_model` degrade gracefully when the
+  files are absent. Unblocks the data half of T3.3.3.
+- **`riskam/platforms.py`** — additive referent constants:
+  `DepthSensor.rgb_hfov_deg` (Xtion 58°, D435 69°),
+  `RobotPlatform.footprint_radius_m` (TIAGo 0.27 m, Ridgeback 0.48 m),
+  `TAU_REACTION_S_DEFAULT` (2.0 s), `BETA_UNAWARE_DEFAULT` (1.0).
+
 ## 2026-05-06 — Sensor compatibility (T2.7) and visualisation
 
 - **T2.7 — RealSense + Xtion support.** Added the near-clip dead-zone fallback in

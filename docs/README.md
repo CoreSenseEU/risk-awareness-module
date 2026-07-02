@@ -13,6 +13,7 @@ in-depth, categorised reference.
 | [sensors-and-platforms.md](sensors-and-platforms.md) | Absolute-depth handling, the near-clip dead-zone fallback, and `riskam/platforms.py` presets |
 | [ros-deployment.md](ros-deployment.md) | Building/running the node; exhaustive parameter, topic, and bagger reference; deployment checklist |
 | [evaluation-framework.md](evaluation-framework.md) | Offline benchmarking toolchain (sweep, metrics, summary, reeval, cache, splits, provenance) |
+| [experimental-metrics.md](experimental-metrics.md) | Kinematic hazard × awareness (Direction A) and ordinal calibration (B1) — the `metric_lab` research track |
 | [visualization.md](visualization.md) | How to read the annotated overlay |
 
 ## Background and planning

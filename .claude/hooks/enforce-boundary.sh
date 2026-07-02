@@ -19,7 +19,10 @@ set -uo pipefail
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$HOME/coresense/risk-awareness-module}"
 
 # Canonicalize. If this fails, the project dir doesn't exist — bail loud.
-if ! PROJECT_ROOT_REAL="$(realpath -e "$PROJECT_ROOT" 2>/dev/null)"; then
+# NOTE: plain `realpath` (no flags) works on both GNU (Linux) and BSD (macOS).
+# BSD realpath has no `-e`, so we verify existence with an explicit test.
+if ! PROJECT_ROOT_REAL="$(realpath "$PROJECT_ROOT" 2>/dev/null)" \
+     || [[ ! -d "$PROJECT_ROOT_REAL" ]]; then
   echo "enforce-boundary: PROJECT_ROOT does not exist: $PROJECT_ROOT" >&2
   exit 1
 fi

@@ -28,7 +28,7 @@ Tier 3. What remains is below.
 | # | Item | Effort | Impact | Status | Notes |
 |---|------|--------|--------|--------|-------|
 | T3.1 | AMD64 Dockerfile | Low | High for deployment | **Pending** | The ARM64 Dockerfile for the Jetson Orin exists and should stay; add an AMD64 variant. |
-| T3.3.3 | Offline `/cmd_vel` replay for path-aware `x_offset` | Medium | High | **Partial** | The sub-score contract and path-projection math are done (see [`architecture.md`](architecture.md) / [`scoring.md`](scoring.md)). Remaining: bag-backed `/cmd_vel` extraction + nearest-neighbour index so offline `x_offset` can be `ACTIVE` instead of `FALLBACK`. **Blocked on data** — first verify `/cmd_vel` is present in the cs_robocup_2023 bags. |
+| T3.3.3 | Offline `/cmd_vel` replay for path-aware `x_offset` | Medium | High | **Partial — data unblocked** | The sub-score contract and path-projection math are done (see [`architecture.md`](architecture.md) / [`scoring.md`](scoring.md)). Bag verification done: `/cmd_vel` is empty in RB_01/06/07, but `/mobile_base_controller/odom` is dense in every run and is now extracted (`odom.csv` + `CSRobocup2023OdomIndex`, see [`experimental-metrics.md`](experimental-metrics.md)). Remaining: feed the odom twist into `run_experiment` so offline `x_offset` can be `ACTIVE` instead of `FALLBACK`. |
 | T3.3.12 | CI regression gate | Medium | Medium | **Pending** | Small curated subset; fail PRs whose key metric regresses beyond a documented budget. Needs a baseline run to compare against. |
 | T3.4.1 | Show current-pipeline prediction while annotating | Low | Medium | **Pending** | Run the pipeline once per frame; display its class alongside the image to calibrate annotator judgment. |
 | T3.4.2 | Non-destructive save + resume/progress | Low | Medium | **Pending** | Back up prior annotations on save; resume from the last labelled frame. |
@@ -42,10 +42,8 @@ Tier 3. What remains is below.
 
 ## Notes on blocked items
 
-Three items gate on data access rather than engineering:
+Two items gate on data access rather than engineering:
 
-- **T3.3.3 (cmd_vel half)** — needs the source bags confirmed to contain
-  `/cmd_vel`, then a replay/index analogous to the depth index.
 - **T3.3.12 (CI gate)** — needs a trusted baseline metric run to regress against.
 - **T3.4.5 (re-annotation)** — pure human annotation work, unblocked once
   T3.4.1–T3.4.4 land.
