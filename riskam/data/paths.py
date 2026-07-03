@@ -11,6 +11,7 @@ ROOT_DIR = Path(__file__).parent.parent.parent
 
 # Dataset names
 CS_ROBOCUP_2023 = "cs_robocup_2023"
+THOR_MAGNI = "thor_magni"
 
 # The dir of the ROS datasets (that need to be converted before using them in ML)
 ROS_DATA_DIR = ROOT_DIR / "ros_datasets"
@@ -30,3 +31,10 @@ CS_ROBOCUP_2023_ML_DIR = ML_DATA_DIR / "cs_robocup_2023"
 CS_ROBOCUP_2023_ML_RAW_DIR = CS_ROBOCUP_2023_ML_DIR / "raw_dataset"
 CS_ROBOCUP_2023_ML_FEAT_DIR = CS_ROBOCUP_2023_ML_DIR / "features"
 CS_ROBOCUP_2023_GROUND_TRUTH_PATH = CS_ROBOCUP_2023_ML_DIR / "ground_truth_risk.json"
+
+# THÖR-MAGNI (Layer-1 measurement-validity dataset; mocap ground truth).
+# ros_datasets/thor_magni is typically a symlink to the extracted Zenodo
+# archive (THOR_MAGNI/ with CSVs_Scenarios/, TSVs_RAWET/, maps/).
+THOR_MAGNI_SRC_DIR = ROS_DATA_DIR / "thor_magni"
+THOR_MAGNI_ML_DIR = ML_DATA_DIR / "thor_magni"
+THOR_MAGNI_GT_DIR = THOR_MAGNI_ML_DIR / "gt"

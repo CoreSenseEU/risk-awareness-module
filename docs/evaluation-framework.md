@@ -119,6 +119,43 @@ baseline.
 
 ---
 
+## THÖR-MAGNI mocap ground truth (evaluation Layer 1)
+
+The measurement-validity layer of the paper eval (`paper-plan.md` §6): the
+[THÖR-MAGNI](https://zenodo.org/records/10554472) dataset provides Qualisys
+mocap (100 Hz) for every participant helmet **and** the DARKO robot, giving
+externally measured ground truth for exactly the quantities
+`riskam/kinematics.py` estimates from vision.
+
+| Tool | Purpose |
+|------|---------|
+| `riskam/data/thor_magni.py` | Parse the per-run mocap CSVs (centroids, body→world rotations, roles) |
+| `scripts/calibrate_thor_magni_frames.py` | Evidence for the frame conventions (robot forward = body +X at cos ≈ 0.999; helmet facing = body ±X with per-helmet mounting sign; footprint scale from marker spread) |
+| `riskam/mocap_gt.py` | GT kinematics per (frame, participant): robot-frame `x/y`, relative velocity, closing speed, `t_cpa`, `d_min`, trajectory hazard (`DARKO_KINECT` platform params), head-facing awareness reference |
+| `scripts/build_thor_magni_gt.py` | All runs → `ml_datasets/thor_magni/gt/<file_id>.csv.gz` + meta JSON (facing signs, tracking coverage, params, provenance) |
+
+Setup: extract the Zenodo `THOR_MAGNI.zip` anywhere and symlink it:
+`ln -s <extracted>/THOR_MAGNI ros_datasets/thor_magni`. Tables are 25 Hz by
+default (`--hz` to change; mocap native is 100 Hz).
+
+Design notes: GT relative velocity is the derivative of the **robot-frame**
+relative position (transform first, then differentiate) so it contains the
+same ω×p transport term a camera-frame measurement does. The helmet facing
+sign is self-calibrated per run from walking alignment (|mean cos| ≈ 0.9;
+confidence recorded per helmet, filter on `facing_sign_conf`). Sanity
+aggregates match the scenario design: robot static in SC1/SC2 (p95 speed
+0.003 m/s), moving in SC3–5 (0.31–0.45 m/s); closest approaches in the HRI
+scenarios SC4/SC5 (min 0.31 m).
+
+> **Blocker for the vision side of Layer 1.** The onboard Azure Kinect RGB-D
+> and fish-eye streams are **not** in the public Zenodo record — they are
+> available on request from the THÖR-MAGNI authors (GDPR). Until that data
+> arrives, the GT tables serve Layer 2's independent oracle and Layer 4a's
+> awareness reference; the vision-vs-mocap error report needs the request
+> fulfilled.
+
+---
+
 ## Dataset preparation (cs_robocup_2023)
 
 The CoreSense RoboCup @ Home 2023 dataset

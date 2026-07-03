@@ -9,7 +9,36 @@ Item codes (T1.x / T2.x / T3.x) refer to the original improvement-plan roadmap.
 
 ---
 
-## 2026-07-02 — Experimental metrics: kinematic hazard (A) + ordinal calibration (B1)
+## 2026-07-03 — THÖR-MAGNI mocap ground truth (evaluation plan Layer 1)
+
+First dataset work under the committed eval revamp (`private/paper-plan.md`
+§6): mocap-derived ground-truth kinematics for measurement validity. See
+[`evaluation-framework.md`](evaluation-framework.md) §THÖR-MAGNI.
+
+- **`riskam/data/thor_magni.py`** — parser for the Zenodo mocap CSVs
+  (metadata header, 100 Hz centroid + body→world rotation tracks per rigid
+  body, roles). 52 runs across 5 scenarios.
+- **`scripts/calibrate_thor_magni_frames.py`** — empirical frame-convention
+  evidence: DARKO forward = body +X (velocity alignment +0.999 on the
+  differential-drive SC3A runs — also confirms body→world); helmet facing =
+  body ±X with per-helmet mounting sign (Helmet_6 mirrored); footprint scale
+  from marker planar spread (0.35–0.57 m).
+- **`riskam/mocap_gt.py`** — GT tables per (frame, participant): robot-frame
+  planar position, relative velocity (differentiated *after* the robot-frame
+  transform so the camera's ω×p transport term is included), closing/
+  tangential speed, `t_cpa`, `d_min`, trajectory hazard via vectorized twins
+  of the `riskam/kinematics.py` formulas (equality pinned by tests), and a
+  head-facing awareness reference with self-calibrated facing sign. NaN-aware
+  Savitzky–Golay smoothing per tracked segment; occlusion gaps ≤ 0.3 s
+  bridged, never extrapolated. Fixed en route: `np.unwrap` over NaN-holed
+  yaw poisoned everything after the first robot-track dropout.
+- **`riskam/platforms.py`** — `AZURE_KINECT` sensor + `DARKO_KINECT`
+  platform presets.
+- Sanity aggregates match the scenario design (robot static in SC1/SC2,
+  0.31–0.45 m/s in SC3–5; closest approaches in the HRI scenarios).
+- **Blocker:** onboard RGB-D is not in the public record (GDPR,
+  upon-request) — the vision-vs-mocap comparison waits on a data request to
+  the authors; the GT tables meanwhile serve Layers 2 and 4a.
 
 Offline implementation of both paper-plan directions as a research track that
 leaves the deployed pipeline untouched. See

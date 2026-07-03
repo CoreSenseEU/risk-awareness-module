@@ -128,6 +128,17 @@ scenes. Close-fallback enabled with a 5% sparse-valid threshold to absorb
 background bleed-through that would otherwise be misread as the person's
 depth. RGB HFOV 58° per the ASUS Xtion / Carmine 1.09 datasheet."""
 
+AZURE_KINECT = DepthSensor(
+    name="azure_kinect",
+    near_clip_m=0.5,
+    valid_frac_max=0.0,
+    rgb_hfov_deg=75.0,
+)
+"""Microsoft Azure Kinect DK (THÖR-MAGNI's DARKO robot). Time-of-flight;
+NFOV depth usable from ~0.5 m, clean absolute depth, zero-fill rare →
+close-fallback disabled. RGB HFOV 75° as configured on the DARKO sensor
+tower (2048×1536 @ 6 Hz per the THÖR-MAGNI paper, arXiv:2403.09285)."""
+
 
 # ── Robot-platform presets ───────────────────────────────────────────────────
 
@@ -141,6 +152,19 @@ RIDGEBACK_D435 = RobotPlatform(
 D435. The SamXL deployment platform; ``d_safe = 1.5 m`` matches the
 Ridgeback's stopping distance plus margin and is the ``riskam_config.yml``
 default. Footprint radius = half the 0.96 m chassis length."""
+
+DARKO_KINECT = RobotPlatform(
+    name="darko_kinect",
+    d_safe_m=1.5,
+    sensor=AZURE_KINECT,
+    footprint_radius_m=0.5,
+)
+"""The DARKO-project robot that recorded THÖR-MAGNI: omnidirectional
+(mecanum) RB-Kairos-class base, ~1 m/s indoor, Azure Kinect on the sensor
+tower. ``d_safe = 1.5 m`` matches the Ridgeback-class stopping distance +
+margin. Footprint radius 0.5 m from the mocap marker planar spread
+(0.35–0.57 m around the centroid — scripts/calibrate_thor_magni_frames.py),
+consistent with the 0.78×0.66 m chassis half-diagonal."""
 
 TIAGO_XTION = RobotPlatform(
     name="tiago_xtion",
