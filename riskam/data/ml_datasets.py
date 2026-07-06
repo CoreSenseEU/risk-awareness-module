@@ -11,6 +11,8 @@ from riskam.data.cs_robocup_2023 import CSRoboCup2023
 from riskam.data.paths import (
     CS_ROBOCUP_2023_ML_RAW_DIR,
     CS_ROBOCUP_2023_GROUND_TRUTH_PATH,
+    CS_ROBOCUP_2024_ML_RAW_DIR,
+    CS_ROBOCUP_2024_GROUND_TRUTH_PATH,
 )
 from riskam.platforms import TIAGO_XTION
 
@@ -25,7 +27,17 @@ DATASETS = {
         # second dataset recorded on the same TIAGo is then a one-liner.
         # See riskam/platforms.py for the canonical definitions.
         "platform": TIAGO_XTION,
-    }
+    },
+    "cs_robocup_2024": {
+        # No PyTorch dataset class yet — the 2024 data currently serves the
+        # scoring/eval pipeline only (no ML-task labels annotated so far).
+        "class": None,
+        "img_dir": CS_ROBOCUP_2024_ML_RAW_DIR,
+        "ground_truth_path": CS_ROBOCUP_2024_GROUND_TRUTH_PATH,
+        # Same TIAGo family as 2023 (head_front_camera namespace); the
+        # per-run camera_info.json carries the exact intrinsics.
+        "platform": TIAGO_XTION,
+    },
 }
 
 

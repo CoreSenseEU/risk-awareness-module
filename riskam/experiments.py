@@ -11,8 +11,8 @@ from time import time
 import cv2
 from tqdm import tqdm
 
-from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
+from riskam.data.run_datasets import RUN_BASED_DEPTH_INDEXES
 from riskam.data.splits import (
     CS_ROBOCUP_2023_SPLIT_PATH,
     VAL_BUCKETS,
@@ -67,15 +67,15 @@ def _load_ground_truth(dataset: str, run: str | None) -> dict | None:
     with open(ground_truth_path, "r", encoding="utf-8") as f:
         ground_truth = json.load(f)
 
-    # If RoboCup 2023, load the ground truth for the specific run
-    if dataset == "cs_robocup_2023" and run is not None:
+    # If RoboCup, load the ground truth for the specific run
+    if dataset in RUN_BASED_DEPTH_INDEXES and run is not None:
         try:
             ground_truth = ground_truth[run]
         except KeyError:
             print(f"Ground truth annotations not found for '{run}', skipping.")
             return None
     else:
-        print("No run specified for RoboCup 2023, skipping.")
+        print("No run specified for RoboCup, skipping.")
         return None
 
     return ground_truth
@@ -120,7 +120,7 @@ def inspect_predictions(
     # Establish the dataset img dir
     img_dir = DATASETS[dataset]["img_dir"]
 
-    if dataset == "cs_robocup_2023":
+    if dataset in RUN_BASED_DEPTH_INDEXES:
         img_dir = img_dir / run / "rgb"
 
     # Load the predictions
@@ -237,9 +237,9 @@ def run_experiment(
     platform = DATASETS[dataset]["platform"]
     depth_index = None
 
-    if dataset == "cs_robocup_2023":
+    if dataset in RUN_BASED_DEPTH_INDEXES:
         img_dir = img_dir / run / "rgb"
-        depth_index = CSRobocup2023DepthIndex(run)
+        depth_index = RUN_BASED_DEPTH_INDEXES[dataset](run)
         if not depth_index:
             print(
                 f"[error] no depth frames found for '{run}'; RiskAM's "

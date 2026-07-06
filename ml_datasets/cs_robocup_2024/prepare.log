@@ -1,0 +1,155 @@
+
+=== storing_2 ===
+output already complete, skipping.
+
+=== restaurant_1 ===
+unzipping restaurant from restaurant.zip (14 GB bag)...
+caution: excluded filename not matched:  restaurant/log/*
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783331377.109565883] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/restaurant_1/rosbag2_2024_07_20-10_54_23_0.db3' for READ_ONLY.
+Extracting data from restaurant_1...
+  rgb: 10330 frames, depth: 10034 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783331994.184172918] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/restaurant_1/rosbag2_2024_07_20-10_54_23_0.db3' for READ_ONLY.
+Extracting aux data from restaurant_1...
+  odom source: /tf (18277 odom→base samples)
+  odom.csv: 18276 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+restaurant_1 done: 10330 rgb, 10034 depth, 18276 odom rows, 5.1G, 105 GB free
+
+=== receptionist_1 ===
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783332063.106134673] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/receptionist_1/rosbag2_2024_07_18-13_15_28_0.db3' for READ_ONLY.
+Extracting data from receptionist_1...
+  rgb: 8926 frames, depth: 8925 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783332609.281055176] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/receptionist_1/rosbag2_2024_07_18-13_15_28_0.db3' for READ_ONLY.
+Extracting aux data from receptionist_1...
+  odom source: /tf (14859 odom→base samples)
+  odom.csv: 14858 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+receptionist_1 done: 8926 rgb, 8925 depth, 14858 odom rows, 4.3G, 102 GB free
+
+=== receptionist_2 ===
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783332663.860507423] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/receptionist_2/rosbag2_2024_07_18-13_56_14_0.db3' for READ_ONLY.
+Extracting data from receptionist_2...
+  rgb: 5942 frames, depth: 5941 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783333096.717590096] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/receptionist_2/rosbag2_2024_07_18-13_56_14_0.db3' for READ_ONLY.
+Extracting aux data from receptionist_2...
+  odom source: /tf (9893 odom→base samples)
+  odom.csv: 9892 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+receptionist_2 done: 5942 rgb, 5941 depth, 9892 odom rows, 2.8G, 99 GB free
+
+=== stickler_1 ===
+unzipping stickler_try_1 from stickler for the rules.zip (16 GB bag)...
+caution: excluded filename not matched:  stickler_try_1/log/*
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783333224.067445502] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/stickler_1/rosbag2_2024_07_20-13_17_12_0.db3' for READ_ONLY.
+Extracting data from stickler_1...
+  rgb: 11785 frames, depth: 11775 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783334037.970948628] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/stickler_1/rosbag2_2024_07_20-13_17_12_0.db3' for READ_ONLY.
+Extracting aux data from stickler_1...
+  odom source: /tf (19626 odom→base samples)
+  odom.csv: 19625 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+stickler_1 done: 11785 rgb, 11775 depth, 19625 odom rows, 5.8G, 76 GB free
+
+=== stickler_2 ===
+unzipping stickler_try_2 from stickler for the rules.zip (12 GB bag)...
+caution: excluded filename not matched:  stickler_try_2/log/*
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783334158.340886087] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/stickler_2/rosbag2_2024_07_20-14_01_11_0.db3' for READ_ONLY.
+Extracting data from stickler_2...
+  rgb: 8773 frames, depth: 8770 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783334689.520834889] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/stickler_2/rosbag2_2024_07_20-14_01_11_0.db3' for READ_ONLY.
+Extracting aux data from stickler_2...
+  odom source: /tf (14653 odom→base samples)
+  odom.csv: 14652 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+stickler_2 done: 8773 rgb, 8770 depth, 14652 odom rows, 4.0G, 69 GB free
+
+=== carry_1 ===
+unzipping carry_try_1 from carry_my_luggage.zip (19 GB bag)...
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783334828.544844800] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/carry_1/rosbag2_2024_07_18-09_54_23_0.db3' for READ_ONLY.
+Extracting data from carry_1...
+  rgb: 13522 frames, depth: 13519 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783335540.819710921] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/carry_1/rosbag2_2024_07_18-09_54_23_0.db3' for READ_ONLY.
+Extracting aux data from carry_1...
+  odom source: /tf (22511 odom→base samples)
+  odom.csv: 22510 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+carry_1 done: 13522 rgb, 13519 depth, 22510 odom rows, 7.0G, 42 GB free
+
+=== carry_2 ===
+unzipping carry_try_2 from carry_my_luggage.zip (12 GB bag)...
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783335645.084535345] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/carry_2/rosbag2_2024_07_18-11_03_16_0.db3' for READ_ONLY.
+Extracting data from carry_2...
+  rgb: 8338 frames, depth: 8336 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783336196.478690378] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/carry_2/rosbag2_2024_07_18-11_03_16_0.db3' for READ_ONLY.
+Extracting aux data from carry_2...
+  odom source: /tf (13200 odom→base samples)
+  odom.csv: 13199 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+carry_2 done: 8338 rgb, 8336 depth, 13199 odom rows, 4.3G, 26 GB free
+
+=== gpsr_1 ===
+error: need ~40 GB free for gpsr_1, have 26 GB.
+
+=== gpsr_1 ===
+unzipping GPSR_TRY_1 from GPSR.zip (23 GB bag)...
+caution: excluded filename not matched:  GPSR_TRY_1/log/*
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783339253.233604589] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/gpsr_1/rosbag2_2024_07_19-12_53_24_0.db3' for READ_ONLY.
+
+=== gpsr_2 ===
+unzipping GPSR_TRY_2 from GPSR.zip (13 GB bag)...
+caution: excluded filename not matched:  GPSR_TRY_2/log/*
+extracting images...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783347502.087041544] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/gpsr_2/rosbag2_2024_07_19-13_55_58_0.db3' for READ_ONLY.
+Extracting data from gpsr_2...
+  rgb: 9292 frames, depth: 9292 frames
+extracting aux (odom + camera_info)...
+debconf: delaying package configuration, since apt-utils is not installed
+[INFO] [1783349589.472438009] [rosbag2_storage]: Opened database '/workspace/ros_datasets/cs_robocup_2024/gpsr_2/rosbag2_2024_07_19-13_55_58_0.db3' for READ_ONLY.
+Extracting aux data from gpsr_2...
+  odom source: /tf (15465 odom→base samples)
+  odom.csv: 15464 twists (tf)
+  camera_info.json: fx=570.2 cx=319.5
+gpsr_2 done: 9292 rgb, 9292 depth, 15464 odom rows, 4.6G, 75 GB free
+
+=== all requested runs processed ===
+7.0G	ml_datasets/cs_robocup_2024/raw_dataset/carry_1
+4.3G	ml_datasets/cs_robocup_2024/raw_dataset/carry_2
+7.4G	ml_datasets/cs_robocup_2024/raw_dataset/gpsr_1
+4.6G	ml_datasets/cs_robocup_2024/raw_dataset/gpsr_2
+4.3G	ml_datasets/cs_robocup_2024/raw_dataset/receptionist_1
+2.8G	ml_datasets/cs_robocup_2024/raw_dataset/receptionist_2
+5.1G	ml_datasets/cs_robocup_2024/raw_dataset/restaurant_1
+5.8G	ml_datasets/cs_robocup_2024/raw_dataset/stickler_1
+4.0G	ml_datasets/cs_robocup_2024/raw_dataset/stickler_2
+1.1G	ml_datasets/cs_robocup_2024/raw_dataset/storing_2

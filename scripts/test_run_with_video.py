@@ -5,8 +5,8 @@ Runs the risk awareness model on a sequence of images, creating
 1) a video from the raw images and 2) a video with the risk score overlay.
 
 RiskAM requires RGB + absolute depth; the depth frame nearest to each RGB
-frame is loaded via CSRobocup2023DepthIndex. Frames with no matching depth
-are skipped.
+frame is loaded via the dataset's depth index. Frames with no matching
+depth are skipped.
 """
 
 import argparse
@@ -19,8 +19,8 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 
 # pylint: disable=wrong-import-position
-from riskam.data.cs_robocup_2023 import CSRobocup2023DepthIndex
 from riskam.data.ml_datasets import DATASETS
+from riskam.data.run_datasets import RUN_BASED_DEPTH_INDEXES
 from riskam.ml import featextr
 from riskam.ml.subscores import FrameInputs
 from riskam import video, visualization as vis
@@ -46,10 +46,10 @@ if __name__ == "__main__":
 
     IMG_DIR = DATASETS[args.dataset]["img_dir"]
     platform = DATASETS[args.dataset]["platform"]
-    depth_index: CSRobocup2023DepthIndex | None = None
-    if args.dataset == "cs_robocup_2023":
+    depth_index = None
+    if args.dataset in RUN_BASED_DEPTH_INDEXES:
         IMG_DIR = IMG_DIR / args.run / "rgb"
-        depth_index = CSRobocup2023DepthIndex(args.run)
+        depth_index = RUN_BASED_DEPTH_INDEXES[args.dataset](args.run)
         if not depth_index:
             sys.exit(
                 f"[error] no depth frames found for '{args.run}'. "

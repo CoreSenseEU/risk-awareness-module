@@ -18,7 +18,16 @@ sys.path.append(str(Path(__file__).parent.parent))
 from riskam.data.extract_cs_robocup import (
     extract_cs_robocup2023,
     extract_cs_robocup2023_aux,
+    extract_cs_robocup2024,
+    extract_cs_robocup2024_aux,
 )
+
+EXTRACTORS = {
+    "cs_robocup_2023": extract_cs_robocup2023,
+    "cs_robocup_2023_aux": extract_cs_robocup2023_aux,
+    "cs_robocup_2024": extract_cs_robocup2024,
+    "cs_robocup_2024_aux": extract_cs_robocup2024_aux,
+}
 
 
 if __name__ == "__main__":
@@ -27,7 +36,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "dataset",
         type=str,
-        choices=["cs_robocup_2023", "cs_robocup_2023_aux"],
+        choices=sorted(EXTRACTORS),
         help=(
             "The dataset to extract. The '_aux' variant extracts only "
             "odometry twists + camera intrinsics (fast, no image decoding) "
@@ -35,10 +44,17 @@ if __name__ == "__main__":
         ),
         default="cs_robocup_2023",
     )
+    parser.add_argument(
+        "--run",
+        type=str,
+        default=None,
+        help=(
+            "Extract a single run (e.g. RB_02 or storing_2) instead of all "
+            "runs present on disk. Enables run-at-a-time processing when "
+            "disk space is tight."
+        ),
+    )
 
     args = parser.parse_args()
 
-    if args.dataset == "cs_robocup_2023":
-        extract_cs_robocup2023()
-    elif args.dataset == "cs_robocup_2023_aux":
-        extract_cs_robocup2023_aux()
+    EXTRACTORS[args.dataset](run=args.run)

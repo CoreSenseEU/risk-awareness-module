@@ -9,6 +9,58 @@ Item codes (T1.x / T2.x / T3.x) refer to the original improvement-plan roadmap.
 
 ---
 
+## 2026-07-06 — cs_robocup_2024 extraction + Layer-2 hindsight-oracle evaluation
+
+Two milestones: the 2024 dataset is pipeline-ready, and the annotation-free
+Layer-2 evaluation (paper plan §Layer 2) runs end-to-end on both RoboCup
+datasets. See [`evaluation-framework.md`](evaluation-framework.md)
+§"Dataset preparation (cs_robocup_2024)" and §"Layer 2".
+
+**Dataset (10 runs, 96,033 frames, 46 GB):**
+- `riskam/data/extract_cs_robocup.py` generalized to a per-dataset spec:
+  2024 topics (`/head_front_camera/*`), depth normalized to uint16 mm and
+  stored as 16-bit PNG (~3× smaller), odometry derived from `/tf`
+  odom→base transforms (the 2024 bags carry no odom topic; verified 50 Hz,
+  plausible TIAGo speeds). `riskam/data/cs_robocup_indices.py` — shared
+  year-agnostic depth/odom indices. Disk-aware run-at-a-time orchestrator
+  `scripts/prepare_cs_robocup_2024.sh`. Every run's frame counts match the
+  bag message counts exactly; depth-index hit rate 100 %.
+- No annotations, by design — 2024 is evaluated via Layer 2.
+
+**Layer 2 (hindsight oracle + early-warning metrics):**
+- New `riskam/hindsight.py` (non-causal oracle; scene-level future-min
+  distance, per-track savgol via the `mocap_gt` helpers, import firewall
+  against the causal stack), `riskam/ssm.py` (ISO/TS 15066-style margin
+  channels, worst-case + awareness-modulated), `riskam/event_table.py`
+  (per-frame backbone: causal channels + oracle outcomes; sibling of the
+  frozen `scene_table.py`), `riskam/early_warning.py` (ROC/PR AUC per
+  (r, T) cell, sustained-alarm episodes, lead time, FA/min,
+  matched-recall headline), driver `scripts/layer2.py`,
+  `riskam/data/run_datasets.py` (torch-free dataset wiring registry).
+- 40 new tests (315 total green).
+
+**First results** (`exp_results/<dataset>/layer2/report.md`):
+- Frame-level AUCs 0.71–0.94 across the (r, T) grid on both datasets;
+  distance-dominated channels lead where events are near-trivial.
+- **Pre-event-only (pure anticipation): `risk_a` is the best channel in
+  all 18 cells across both datasets** (2023: 0.57–0.65; 2024: 0.62–0.69)
+  — the kinematic awareness-fused metric anticipates encounters better
+  than m0, proximity, TTC and both SSM variants. This is the replicated
+  headline candidate.
+- The awareness-modulated-SSM alarm-time reduction at matched recall is
+  8–23 % on 2023 but **does not replicate on 2024** (−3 to +2 %) — an
+  honest negative worth investigating (denser crowds, higher reference
+  recall) before it appears in the paper.
+- Episode-count FA/min is misleading in high-event-density recordings
+  (the worst-case reference is in alarm >50 % of total time); alarm-time
+  at matched recall is the primary equal-safety comparison.
+
+Also: `scripts/test_run_with_video.py` generalized to any registered
+dataset; 2024 showcase videos rendered
+(`test_results/videos/cs_robocup_2024_receptionist_1_{risk,raw}.avi`).
+
+---
+
 ## 2026-07-03 — THÖR-MAGNI mocap ground truth (evaluation plan Layer 1)
 
 First dataset work under the committed eval revamp (`private/paper-plan.md`

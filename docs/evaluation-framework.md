@@ -182,3 +182,91 @@ The Python-only environment is managed with [uv](https://docs.astral.sh/uv/)
 (`uv sync`; run commands via `uv run`). For `extract_ros2_dataset.py`, link the
 system `rosbag2_py` into the venv via a `ros2.pth` file and source ROS 2 first —
 see the root README's "Installation & prerequisites".
+
+## Dataset preparation (cs_robocup_2024)
+
+The CoreSense RoboCup @ Home 2024 dataset (Eindhoven; same TIAGo family,
+`/head_front_camera/*` topics). 10 runs across 6 tasks: `carry_1/2`,
+`gpsr_1/2`, `receptionist_1/2`, `restaurant_1`, `stickler_1/2`, `storing_2`
+(storing has no try-1 recording).
+
+Differences from 2023, all handled by `riskam/data/extract_cs_robocup.py`:
+
+- depth frames are stored as lossless **16-bit PNGs** (still raw uint16
+  millimetres; ~3× smaller than `.npy`);
+- the bags carry **no odometry topic** — `odom.csv` twists are derived from
+  the `/tf` odom→base transforms by finite differences (same CSV schema,
+  `/cmd_vel` is a loudly-flagged fallback);
+- runs are discovered by scanning `ros_datasets/cs_robocup_2024/*/` for
+  `metadata.yaml` (no `RB_XX` enumeration).
+
+The bags unpack to ~146 GB, so preparation is disk-aware and run-at-a-time
+(stage one bag → extract → verify → delete the staged bag; source zips are
+the archive). With the downloaded archives in
+`~/data/coresense_robocup_2024` (override via `CS_ROBOCUP_2024_SRC`):
+
+```bash
+scripts/prepare_cs_robocup_2024.sh            # all runs, resumable
+scripts/prepare_cs_robocup_2024.sh storing_2  # a single run
+```
+
+The receptionist bags are the only copy (no zip) — the script moves them in
+and back out instead of deleting. Single-run extraction without the
+orchestrator: `scripts/extract_ros2_dataset_macos.sh cs_robocup_2024 --run
+<run>` (and `cs_robocup_2024_aux` for odometry + intrinsics).
+
+Ground-truth risk annotations and a val/test split for 2024 do not exist
+yet — by design: 2024 is evaluated via the Layer-2 hindsight oracle below,
+not via labels. The runs serve the scoring pipeline
+(`CSRobocup2024DepthIndex` / `CSRobocup2024OdomIndex`).
+
+## Layer 2 — hindsight oracle & early-warning evaluation
+
+The annotation-free evaluation backbone (`private/paper-plan.md` §Layer 2):
+per-frame ground truth is *what actually happened* — "a person came within
+r metres within the next T seconds" (r ∈ {0.5, 1.0, 1.5} m,
+T ∈ {1, 2, 3} s), computed non-causally from the full recording. Every
+metric channel is scored as an early-warning signal.
+
+Components:
+
+- **`riskam/data/run_datasets.py`** — wiring registry for the per-run
+  RGB-D datasets (raw dirs, run discovery, platform, depth/odom indices,
+  camera loaders). Torch-free; scripts import this, never
+  `riskam.experiments` (which loads YOLO at import).
+- **`riskam/hindsight.py`** — the oracle. Per-track Savitzky–Golay
+  smoothing (reusing the `mocap_gt` helpers), scene-level future-min
+  distance (identity-free events: ByteTrack ID switches cannot hide a
+  scene minimum), event cells + `t_to_onset` + lookahead-coverage columns.
+  **Circularity firewall**: imports only cache + camera geometry +
+  `mocap_gt` smoothing; never the causal scoring stack (pinned by a test).
+- **`riskam/ssm.py`** — ISO/TS 15066-style protective separation distance
+  (`S_p = v_h(t_r+t_s) + v_r·t_r + C`, worst-case `v_h = 1.6 m/s`) as
+  threshold-sweepable per-frame *margin* channels; the awareness-modulated
+  variant interpolates `v_h` toward 0.5 m/s under measured awareness.
+- **`riskam/event_table.py`** — one row per frame (ALL frames, unlabelled
+  included): causal score channels (mirrors `scene_table.py`'s walk, which
+  stays frozen for metric_lab) + SSM margins + the oracle block.
+- **`riskam/early_warning.py`** — frame-level ROC/PR AUC per (r, T) cell
+  (all-frames and pre-event-only variants; low-coverage negatives masked),
+  sustained-alarm episodes, event recall, lead time, FA/min, and the
+  matched-recall headline (worst-case vs awareness-modulated SSM). In
+  high-event-density recordings, **alarm-time reduction at matched recall**
+  is the primary equal-safety comparison (the worst-case reference is in
+  alarm most of the time, making episode counts misleading).
+- **`scripts/layer2.py`** — driver: `check` / `populate` (the one GPU
+  step; whole-run resumable — ByteTrack IDs are sequence-coupled) /
+  `build` / `evaluate` / `report`, `--dataset cs_robocup_2023|2024`.
+
+```bash
+uv run python scripts/layer2.py --dataset cs_robocup_2024 check
+caffeinate -i uv run python scripts/layer2.py --dataset cs_robocup_2024 populate --device mps
+uv run python scripts/layer2.py --dataset cs_robocup_2024 build
+uv run python scripts/layer2.py --dataset cs_robocup_2024 evaluate
+uv run python scripts/layer2.py --dataset cs_robocup_2024 report
+```
+
+Outputs land in `exp_results/<dataset>/layer2/` (`event_table.csv`,
+`event_table_meta.json`, `early_warning.json`, `report.md`). The event
+table is also the sampling substrate for the upcoming Layer-3 VLM pairwise
+protocol and Layer-4b yield analysis.

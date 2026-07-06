@@ -7,8 +7,9 @@
 # ml_datasets/<dataset>/raw_dataset/ on the host.
 #
 # Usage (from the repo root):
-#   scripts/extract_ros2_dataset_macos.sh [dataset]
-# Default dataset: cs_robocup_2023.
+#   scripts/extract_ros2_dataset_macos.sh [dataset] [extra args...]
+# Default dataset: cs_robocup_2023. Extra args (e.g. --run storing_2) are
+# passed through to extract_ros2_dataset.py.
 #
 # Linux users with ROS 2 rolling installed should run extract_ros2_dataset.py
 # directly via uv; this wrapper exists for the macOS dev workflow only.
@@ -16,6 +17,8 @@
 set -euo pipefail
 
 DATASET="${1:-cs_robocup_2023}"
+shift || true
+EXTRA_ARGS="$*"
 IMAGE="ros:rolling-perception"
 
 if [[ ! -f pyproject.toml ]]; then
@@ -28,10 +31,16 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-docker run --rm -it \
+# TTY flags only when attached to a terminal (allows headless/CI runs).
+TTY_FLAGS=""
+if [ -t 0 ]; then
+  TTY_FLAGS="-it"
+fi
+
+docker run --rm ${TTY_FLAGS} \
   -v "$(pwd)":/workspace -w /workspace \
   "$IMAGE" \
   bash -lc "apt-get update -qq && \
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3-pil >/dev/null && \
             source /opt/ros/rolling/setup.bash && \
-            python3 scripts/extract_ros2_dataset.py ${DATASET}"
+            python3 scripts/extract_ros2_dataset.py ${DATASET} ${EXTRA_ARGS}"

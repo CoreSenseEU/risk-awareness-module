@@ -22,22 +22,18 @@ from tqdm import tqdm
 # preparation utilities below.  It is imported lazily so the live RiskAM
 # pipeline (ROS node, score, depth) does not require it.
 
+from riskam.data.cs_robocup_indices import (
+    CSRobocupDepthIndex,
+    CSRobocupOdomIndex,
+    RGB_DEPTH_MAX_DT_S,
+    RGB_ODOM_MAX_DT_S,
+    load_camera_model as _load_camera_model,
+)
 from riskam.data.paths import (
     CS_ROBOCUP_2023_ML_DIR,
     CS_ROBOCUP_2023_ML_RAW_DIR,
     CS_ROBOCUP_2023_ML_FEAT_DIR,
 )
-from riskam.ml.depth import depth_mm_to_m
-
-
-# Max allowable RGB↔depth timestamp mismatch (seconds). RealSense colour and
-# depth streams are typically synced within tens of milliseconds; anything
-# beyond this threshold is treated as missing depth data.
-RGB_DEPTH_MAX_DT_S = 0.2
-
-# Max allowable RGB↔odometry timestamp mismatch (seconds). Odometry is dense
-# (~40–100 Hz in the cs_robocup_2023 bags), so a small tolerance suffices.
-RGB_ODOM_MAX_DT_S = 0.25
 
 
 CS_ROBOCUP_N_HUMANS_PATH = CS_ROBOCUP_2023_ML_DIR / "n_humans.json"
@@ -129,126 +125,23 @@ class CSRoboCup2023(Dataset):
         return image
 
 
-class CSRobocup2023DepthIndex:
-    """Nearest-neighbour depth lookup for CS RoboCup 2023 frames.
-
-    Depth frames are stored as ``{timestamp:.3f}.npy`` under
-    ``RB_XX/depth/`` (raw uint16 millimetres, as emitted by the RealSense
-    sensor). This index sorts available timestamps once, then resolves the
-    closest depth frame for any RGB frame via binary search. If the closest
-    depth frame is more than ``RGB_DEPTH_MAX_DT_S`` seconds away, depth is
-    treated as unavailable.
-    """
+class CSRobocup2023DepthIndex(CSRobocupDepthIndex):
+    """:class:`CSRobocupDepthIndex` bound to the 2023 raw dataset."""
 
     def __init__(self, run: str) -> None:
-        depth_dir = CS_ROBOCUP_2023_ML_RAW_DIR / run / "depth"
-        if not depth_dir.is_dir():
-            self._timestamps = np.empty(0, dtype=float)
-            self._paths: list[Path] = []
-            return
-        paths = sorted(depth_dir.glob("*.npy"))
-        self._paths = paths
-        self._timestamps = np.array([float(p.stem) for p in paths], dtype=float)
-
-    def __bool__(self) -> bool:
-        return self._timestamps.size > 0
-
-    def __len__(self) -> int:
-        return self._timestamps.size
-
-    def load_for_rgb(self, rgb_path: Path) -> np.ndarray | None:
-        """Return the depth frame (float32 metres) nearest to ``rgb_path``.
-
-        Returns ``None`` if no depth frames are indexed, the RGB stem is not
-        a valid timestamp, or the closest depth frame is farther than
-        ``RGB_DEPTH_MAX_DT_S`` away.
-        """
-        if self._timestamps.size == 0:
-            return None
-        try:
-            target_ts = float(rgb_path.stem)
-        except ValueError:
-            return None
-        idx = int(np.searchsorted(self._timestamps, target_ts))
-        candidates = []
-        if idx > 0:
-            candidates.append(idx - 1)
-        if idx < self._timestamps.size:
-            candidates.append(idx)
-        best = min(candidates, key=lambda i: abs(self._timestamps[i] - target_ts))
-        if abs(self._timestamps[best] - target_ts) > RGB_DEPTH_MAX_DT_S:
-            return None
-        depth_mm = np.load(self._paths[best])
-        return depth_mm_to_m(depth_mm)
+        super().__init__(run, CS_ROBOCUP_2023_ML_RAW_DIR)
 
 
-class CSRobocup2023OdomIndex:
-    """Nearest-neighbour odometry-twist lookup for CS RoboCup 2023 frames.
-
-    Reads ``RB_XX/odom.csv`` (columns ``t_s, linear_x, linear_y, angular_z``,
-    written by the aux bag-extraction pass in
-    :mod:`riskam.data.extract_cs_robocup`). The file is optional: when it is
-    absent the index is falsy and the kinematic pipeline degrades to the
-    no-ego (v_robot = 0) behaviour. Twists are in the robot base frame; the
-    camera is assumed aligned with base forward (the TIAGo head-pan angle is
-    ignored — a documented approximation).
-    """
+class CSRobocup2023OdomIndex(CSRobocupOdomIndex):
+    """:class:`CSRobocupOdomIndex` bound to the 2023 raw dataset."""
 
     def __init__(self, run: str, tolerance_s: float = RGB_ODOM_MAX_DT_S) -> None:
-        self._tolerance_s = tolerance_s
-        odom_path = CS_ROBOCUP_2023_ML_RAW_DIR / run / "odom.csv"
-        if not odom_path.is_file():
-            self._data = np.empty((0, 4), dtype=float)
-            return
-        self._data = np.loadtxt(
-            odom_path, delimiter=",", skiprows=1, dtype=float
-        ).reshape(-1, 4)
-
-    def __bool__(self) -> bool:
-        return self._data.shape[0] > 0
-
-    def __len__(self) -> int:
-        return self._data.shape[0]
-
-    def twist_for(self, t_s: float):
-        """Return the nearest :class:`riskam.kinematics.PlanarTwist`, or
-        ``None`` when no sample lies within the tolerance."""
-        from riskam.kinematics import PlanarTwist
-
-        if self._data.shape[0] == 0:
-            return None
-        ts = self._data[:, 0]
-        idx = int(np.searchsorted(ts, t_s))
-        candidates = [i for i in (idx - 1, idx) if 0 <= i < len(ts)]
-        best = min(candidates, key=lambda i: abs(ts[i] - t_s))
-        if abs(ts[best] - t_s) > self._tolerance_s:
-            return None
-        _, vx, vy, wz = self._data[best]
-        return PlanarTwist(t_s=float(ts[best]), vx_ms=vx, vy_ms=vy, wz_rads=wz)
+        super().__init__(run, CS_ROBOCUP_2023_ML_RAW_DIR, tolerance_s)
 
 
 def load_camera_model(run: str, image_width: int, sensor):
-    """Camera model for a run: exact intrinsics when extracted, FOV fallback.
-
-    Prefers ``RB_XX/camera_info.json`` (written by the aux bag-extraction
-    pass; exact fx/cx). Falls back to the pinhole model derived from the
-    sensor's datasheet HFOV. Returns ``(camera_model, source_str)``.
-    """
-    from riskam.kinematics import CameraModel
-
-    info_path = CS_ROBOCUP_2023_ML_RAW_DIR / run / "camera_info.json"
-    if info_path.is_file():
-        info = json.loads(info_path.read_text())
-        return (
-            CameraModel.from_intrinsics(info["fx"], info["cx"]),
-            "camera_info",
-        )
-    if sensor.rgb_hfov_deg is None:
-        raise ValueError(
-            f"No camera_info.json for run {run} and sensor "
-            f"{sensor.name!r} has no rgb_hfov_deg fallback."
-        )
-    return CameraModel.from_hfov(sensor.rgb_hfov_deg, image_width), "hfov_fallback"
+    """:func:`riskam.data.cs_robocup_indices.load_camera_model` for 2023."""
+    return _load_camera_model(run, CS_ROBOCUP_2023_ML_RAW_DIR, image_width, sensor)
 
 
 def extract_features() -> None:
