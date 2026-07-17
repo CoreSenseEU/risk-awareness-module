@@ -10,6 +10,7 @@ from riskam.ml.depth import D_SAFE_DEFAULT, NEAR_CLIP_M_DEFAULT
 from riskam.platforms import (
     BETA_UNAWARE_DEFAULT,
     PRIMESENSE_XTION,
+    QOLO_REALSENSE,
     REALSENSE_D4XX,
     RIDGEBACK_D435,
     TAU_REACTION_S_DEFAULT,
@@ -66,6 +67,12 @@ class TestPlatformPresets:
         # TIAGo base ⌀ 0.54 m; Ridgeback half chassis length.
         assert TIAGO_XTION.footprint_radius_m == 0.27
         assert RIDGEBACK_D435.footprint_radius_m == 0.48
+
+    def test_qolo_realsense_calibration(self):
+        # crowdbot_v2 evaluation depends on these exact values; pin them.
+        assert QOLO_REALSENSE.d_safe_m == 1.5
+        assert QOLO_REALSENSE.sensor is REALSENSE_D4XX
+        assert QOLO_REALSENSE.footprint_radius_m == 0.45
 
     def test_kinematic_referent_constants(self):
         # Physical referents for the experimental kinematic hazard.

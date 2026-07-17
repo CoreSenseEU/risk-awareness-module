@@ -106,7 +106,8 @@ deployment can override any field without inventing a new platform name.
 | Robot preset | `d_safe_m` | Sensor | Notes |
 |--------------|------------|--------|-------|
 | `RIDGEBACK_D435` | `1.5` | `REALSENSE_D4XX` | SamXL deployment; matches `riskam_config.yml` defaults bit-identically |
-| `TIAGO_XTION` | `2.5` | `PRIMESENSE_XTION` | cs_robocup_2023; `d_safe` bumped 1.5→2.5 m for the Xtion's deeper usable range so mid-range pedestrians aren't penalised |
+| `TIAGO_XTION` | `2.5` | `PRIMESENSE_XTION` | cs_robocup_2023 + 2024; `d_safe` bumped 1.5→2.5 m for the Xtion's deeper usable range so mid-range pedestrians aren't penalised |
+| `QOLO_REALSENSE` | `1.5` | `REALSENSE_D4XX` | crowdbot_v2 (EPFL Qolo, outdoor crowds); pedestrian-speed shared control, footprint radius 0.45 m ≈ the RDS capsule model |
 
 ### Deriving a custom platform
 

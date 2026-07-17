@@ -20,8 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from riskam.data import cs_robocup_2023, cs_robocup_2024
+from riskam.data import crowdbot_v2, cs_robocup_2023, cs_robocup_2024
 from riskam.data.paths import (
+    CROWDBOT_V2,
+    CROWDBOT_V2_ML_RAW_DIR,
     CS_ROBOCUP_2023,
     CS_ROBOCUP_2023_GROUND_TRUTH_PATH,
     CS_ROBOCUP_2023_ML_RAW_DIR,
@@ -29,7 +31,7 @@ from riskam.data.paths import (
     CS_ROBOCUP_2024_ML_RAW_DIR,
 )
 from riskam.data.splits import CS_ROBOCUP_2023_SPLIT_PATH
-from riskam.platforms import TIAGO_XTION, RobotPlatform
+from riskam.platforms import QOLO_REALSENSE, TIAGO_XTION, RobotPlatform
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,17 @@ RUN_DATASETS: dict[str, RunDataset] = {
         odom_index_cls=cs_robocup_2024.CSRobocup2024OdomIndex,
         camera_loader=cs_robocup_2024.load_camera_model,
         # Unannotated by design (paper plan: eval layers, not labels).
+        ground_truth_path=None,
+        split_path=None,
+    ),
+    CROWDBOT_V2: RunDataset(
+        name=CROWDBOT_V2,
+        raw_dir=CROWDBOT_V2_ML_RAW_DIR,
+        platform=QOLO_REALSENSE,
+        depth_index_cls=crowdbot_v2.CrowdbotV2DepthIndex,
+        odom_index_cls=crowdbot_v2.CrowdbotV2OdomIndex,
+        camera_loader=crowdbot_v2.load_camera_model,
+        # Unannotated, like cs_robocup_2024 (eval layers, not labels).
         ground_truth_path=None,
         split_path=None,
     ),

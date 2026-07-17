@@ -14,7 +14,6 @@ and must stay torch-free.
 """
 
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +34,11 @@ from riskam.data.paths import (
     CS_ROBOCUP_2023_ML_RAW_DIR,
     CS_ROBOCUP_2024_ROS_DIR,
     CS_ROBOCUP_2024_ML_RAW_DIR,
+)
+from riskam.data.tf_odometry import (
+    last_segment as _last_segment,
+    quat_to_yaw,
+    tf_poses_to_twists as _tf_poses_to_twists,
 )
 
 
@@ -87,9 +91,6 @@ TOPIC_CMD_VEL = "/cmd_vel"
 TF_ODOM_PARENTS = {"odom"}
 TF_ODOM_CHILDREN = {"base_footprint", "base_link"}
 
-# tf-derived twists: sample gaps larger than this mean the transform stream
-# was interrupted; differentiating across the gap would be meaningless.
-TF_MAX_SAMPLE_GAP_S = 0.5
 
 
 def _bag_dirs_2023():
@@ -218,42 +219,7 @@ def extract_images(spec: BagSpec, run: str | None = None) -> None:
 
 def _quat_to_yaw(q) -> float:
     """Yaw (rad) of a geometry_msgs Quaternion (planar robot assumption)."""
-    return math.atan2(
-        2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-    )
-
-
-def _wrap_angle(a: float) -> float:
-    return (a + math.pi) % (2.0 * math.pi) - math.pi
-
-
-def _last_segment(frame: str) -> str:
-    return frame.rstrip("/").rsplit("/", 1)[-1]
-
-
-def _tf_poses_to_twists(
-    poses: list[tuple[float, float, float, float]],
-) -> list[tuple[float, float, float, float]]:
-    """Finite-difference odom→base poses into base-frame planar twists.
-
-    ``poses`` are (t, x, y, yaw) samples in the odom frame, sorted by t.
-    Consecutive samples are differentiated; the world-frame velocity is
-    rotated into the base frame at the midpoint yaw, matching the twist
-    convention of nav_msgs/Odometry (and the 2023 odom.csv files).
-    """
-    twists: list[tuple[float, float, float, float]] = []
-    for (t0, x0, y0, yaw0), (t1, x1, y1, yaw1) in zip(poses, poses[1:]):
-        dt = t1 - t0
-        if dt <= 0.0 or dt > TF_MAX_SAMPLE_GAP_S:
-            continue
-        vx_w = (x1 - x0) / dt
-        vy_w = (y1 - y0) / dt
-        yaw_mid = yaw0 + 0.5 * _wrap_angle(yaw1 - yaw0)
-        vx = math.cos(yaw_mid) * vx_w + math.sin(yaw_mid) * vy_w
-        vy = -math.sin(yaw_mid) * vx_w + math.cos(yaw_mid) * vy_w
-        wz = _wrap_angle(yaw1 - yaw0) / dt
-        twists.append((0.5 * (t0 + t1), vx, vy, wz))
-    return twists
+    return quat_to_yaw(q.x, q.y, q.z, q.w)
 
 
 def extract_aux(spec: BagSpec, run: str | None = None) -> None:

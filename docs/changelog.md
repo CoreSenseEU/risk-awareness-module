@@ -9,6 +9,48 @@ Item codes (T1.x / T2.x / T3.x) refer to the original improvement-plan roadmap.
 
 ---
 
+## 2026-07-17 — crowdbot_v2: first outdoor-crowd dataset, RiskAM-ified end-to-end
+
+The CrowdBot v2 recordings (EPFL Qolo standing mobility robot, RDS shared
+control, Lausanne street market 2021-04-24, faces defaced) join the
+registry as `crowdbot_v2` — the first *outdoor*, *dense-crowd* dataset and
+the first on a RealSense platform. See
+[`evaluation-framework.md`](evaluation-framework.md) §"Dataset preparation
+(crowdbot_v2)".
+
+**Dataset (7 runs, 8,915 RGB frames, ~4 GB):**
+- `riskam/data/extract_crowdbot.py` — ROS 1 bags read with the pure-Python
+  `rosbags` library (new dependency); no ROS install or Docker wrapper.
+  Forward RealSense `/camera_left`: RGB ~13 Hz, `aligned_depth_to_color`
+  16-bit PNG mm ~6.5 Hz (depth-index hit rate ~100%), twists from
+  odom→`tf_qolo` /tf transforms at ~200 Hz (shared finite-difference
+  helpers factored into `riskam/data/tf_odometry.py`, also used by the
+  ROS 2 extractor). Defacing quirk handled: color bytes are RGB despite
+  the declared `bgr8`. Disk-aware orchestrator
+  `scripts/prepare_crowdbot_v2.sh` (stage → extract → delete, resumable).
+- New `QOLO_REALSENSE` platform preset (`d_safe` 1.5 m, RealSense D4xx,
+  footprint radius 0.45 m ≈ the RDS capsule model), pinned in
+  `tests/test_platforms.py`.
+
+**Layer 2 results** (`exp_results/crowdbot_v2/layer2/`; oracle/causal
+distance correlation 0.987):
+- Frame-level AUCs up to 0.86 (`ssm_worst`, r15_T1s); kinematic channels
+  (`hazard`/`risk_a`) clearly beat distance channels at r ≥ 1.0 m.
+- Pre-event anticipation: `hazard`/`risk_a` lead the mid/far T2–T3 cells,
+  but `ssm_worst` edges them in every T1 cell — the "risk_a wins all
+  cells" RoboCup headline does **not** carry over unchanged to outdoor
+  crowds.
+- The awareness-modulated-SSM alarm-time reduction at matched recall is
+  **52–62%** for r ≤ 1.0 m (vs 8–23% on 2023, ≈0% on 2024) — by far the
+  strongest showing of the awareness modulation; at r = 1.5 m it
+  vanishes (1%). Consistent with a dense crowd where most pedestrians
+  are visibly aware of the robot.
+- Per-run videos with the kinematic-metric overlay:
+  `exp_results/crowdbot_v2/layer2/videos/` (same overlay as the RoboCup
+  videos, via `scripts/layer2.py video`).
+
+---
+
 ## 2026-07-06 — cs_robocup_2024 extraction + Layer-2 hindsight-oracle evaluation
 
 Two milestones: the 2024 dataset is pipeline-ready, and the annotation-free

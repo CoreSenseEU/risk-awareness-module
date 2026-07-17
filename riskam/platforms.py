@@ -166,6 +166,19 @@ margin. Footprint radius 0.5 m from the mocap marker planar spread
 (0.35–0.57 m around the centroid — scripts/calibrate_thor_magni_frames.py),
 consistent with the 0.78×0.66 m chassis half-diagonal."""
 
+QOLO_REALSENSE = RobotPlatform(
+    name="qolo_realsense",
+    d_safe_m=1.5,
+    sensor=REALSENSE_D4XX,
+    footprint_radius_m=0.45,
+)
+"""EPFL Qolo standing mobility robot (CrowdBot trials, Lausanne 2021) with
+RealSense D435 RGB-D cameras; the extracted stream is the forward-facing
+``camera_left`` with depth aligned to color. Pedestrian-speed shared control
+(≤ ~1.2 m/s) among outdoor crowds → ``d_safe = 1.5 m``, the Ridgeback-class
+stopping distance + margin. Footprint radius ≈ half the ~0.9 × 0.6 m
+device-plus-rider footprint used by the RDS shared-control capsule model."""
+
 TIAGO_XTION = RobotPlatform(
     name="tiago_xtion",
     d_safe_m=2.5,

@@ -220,6 +220,34 @@ yet — by design: 2024 is evaluated via the Layer-2 hindsight oracle below,
 not via labels. The runs serve the scoring pipeline
 (`CSRobocup2024DepthIndex` / `CSRobocup2024OdomIndex`).
 
+## Dataset preparation (crowdbot_v2)
+
+The CrowdBot v2 recordings: EPFL's Qolo standing mobility robot under RDS
+shared control in a dense outdoor pedestrian street (Lausanne market,
+2021-04-24), faces defaced. 7 runs labelled by recording start time
+(`rds_1120` … `rds_1155`), ~48 s–4 min each. The first *outdoor*, *crowd*
+dataset in the registry, and the first on a RealSense platform
+(`QOLO_REALSENSE`, `d_safe = 1.5 m`).
+
+The bags are **ROS 1**, read by `riskam/data/extract_crowdbot.py` with the
+pure-Python `rosbags` library — no ROS installation or Docker wrapper.
+Extracted stream: the forward-facing `/camera_left` RealSense — RGB at
+~13 Hz, `aligned_depth_to_color` (16UC1 mm → 16-bit PNG, shares the RGB
+intrinsics) at ~6.5 Hz, `odom.csv` twists finite-differenced from the
+odom→`tf_qolo` transforms (~200 Hz; no odometry topic in the bags).
+Quirk: the defacing pipeline left the color bytes in RGB order despite the
+declared `bgr8` encoding — the extractor saves them unswapped.
+
+With the source archive in `~/data/crowdbot_v2/` (override via
+`CROWDBOT_V2_SRC`), preparation is disk-aware and run-at-a-time like 2024:
+
+```bash
+scripts/prepare_crowdbot_v2.sh           # all 7 runs, resumable
+scripts/prepare_crowdbot_v2.sh rds_1143  # a single run
+```
+
+Unannotated like 2024 — evaluated via Layer 2.
+
 ## Layer 2 — hindsight oracle & early-warning evaluation
 
 The annotation-free evaluation backbone (`private/paper-plan.md` §Layer 2):

@@ -530,87 +530,15 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# video
+# video (overlay helpers live in riskam.visualization, shared with
+# scripts/layer2.py `video`)
 # --------------------------------------------------------------------------- #
-def _risk_color_bgr(v: float) -> tuple:
-    """Continuous green → yellow → red by fused risk (BGR)."""
-    v = float(np.clip(v, 0.0, 1.0))
-    return (0, int(255 * min(1.0, 2.0 * (1.0 - v))), int(255 * min(1.0, 2.0 * v)))
-
-
-def _put_boxed_text(img, text, org, font_scale, color, thickness=1) -> None:
-    import cv2  # noqa: PLC0415
-
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    (tw, th), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-    x, y = org
-    x = max(3, min(x, img.shape[1] - tw - 6))  # keep the label on-frame
-    cv2.rectangle(
-        img, (x - 3, y - th - 3), (x + tw + 3, y + baseline + 1), (0, 0, 0), -1
-    )
-    cv2.putText(img, text, (x, y), font, font_scale, color, thickness, cv2.LINE_AA)
-
-
-def _annotate_kinematic_frame(
-    img, bboxes, kins, scene_risk, scene_held, ego, run: str, rel_t: float
-):
-    """Overlay the Direction-A channels. Deliberately NO ground truth and
-    no deployed-metric output — this is the new metric on its own."""
-    import cv2  # noqa: PLC0415
-
-    from riskam.kinematics import KinematicStatus  # noqa: PLC0415
-
-    h, w = img.shape[:2]
-    fused = [k.risk if k.risk is not None else k.hazard for k in kins]
-    scene_idx = int(np.argmax(fused)) if fused else -1
-
-    for i, bbox in enumerate(bboxes):
-        x1, y1, x2, y2 = (int(c) for c in bbox)
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w - 1, x2), min(h - 1, y2)
-        k = kins[i]
-        color = _risk_color_bgr(fused[i])
-        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 0), 4)
-        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-
-        if k.status is KinematicStatus.DEAD_ZONE:
-            geo = "TOO CLOSE (depth dead zone)"
-        elif k.status is KinematicStatus.STATIC:
-            geo = f"d {k.d_m:.1f}m  static"
-        else:
-            geo = f"d {k.d_m:.1f}m  miss {k.d_min_m:.1f}m  in {k.t_cpa_s:.1f}s"
-        aw_txt = f"{k.awareness:.2f}" if k.awareness is not None else "n/a"
-        chan = f"haz {k.hazard:.2f}  aw {aw_txt}  -> {fused[i]:.2f}"
-        _put_boxed_text(img, geo, (x1, max(28, y1 - 22)), 0.45, (255, 255, 255))
-        _put_boxed_text(img, chan, (x1, max(46, y1 - 6)), 0.45, color)
-
-        if i == scene_idx:
-            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-            cv2.putText(img, "*", (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX,
-                        1.0, (0, 0, 0), 4, cv2.LINE_AA)
-            cv2.putText(img, "*", (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX,
-                        1.0, (255, 255, 255), 2, cv2.LINE_AA)
-
-    # "hold" marks a value carried by the release (memory bridging a
-    # detector dropout), not a live measurement.
-    risk_txt = f"risk {scene_risk:.2f}" + (" hold" if scene_held else "")
-    _put_boxed_text(
-        img, risk_txt, (w - (220 if scene_held else 130), 32), 0.8,
-        _risk_color_bgr(scene_risk), thickness=2,
-    )
-    ego_txt = f"ego {ego.speed:.2f} m/s" if ego is not None else "ego n/a"
-    _put_boxed_text(
-        img, f"{run}  t+{rel_t:5.1f}s  {ego_txt}  kinematic metric (A)",
-        (10, 22), 0.45, (255, 255, 255),
-    )
-    return img
-
-
 def cmd_video(args: argparse.Namespace) -> int:
     import cv2  # noqa: PLC0415
 
     from riskam.kinematics import KinematicTracker, SceneRiskSmoother  # noqa: PLC0415
     from riskam.ml import humandet  # noqa: PLC0415
+    from riskam.visualization import annotate_kinematic_frame  # noqa: PLC0415
 
     cache = FeatureCache(
         FEATURE_CACHE_ROOT, model_sha(humandet.YOLO_POSE_MODEL_PATH), DATASET
@@ -663,7 +591,7 @@ def cmd_video(args: argparse.Namespace) -> int:
                 default=0.0,
             )
             scene_risk = scene_smoother.update(ts, instant)
-            annotated = _annotate_kinematic_frame(
+            annotated = annotate_kinematic_frame(
                 img, prim.human_bboxes, kins, scene_risk,
                 scene_smoother.held, ego, run, ts - t0,
             )

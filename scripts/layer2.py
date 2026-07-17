@@ -18,6 +18,8 @@ Sub-commands (the one expensive step is isolated in ``populate``):
   build      cache -> event_table.csv + meta (CPU: tracker + oracle, no GPU)
   evaluate   event_table.csv -> early_warning.json
   report     early_warning.json -> report.md
+  video      cache -> per-run videos annotated with the kinematic metric
+             (exp_results/<dataset>/layer2/videos/; CPU, no GPU needed)
   all        populate -> build -> evaluate -> report
 
 Outputs land in exp_results/<dataset>/layer2/.
@@ -332,6 +334,110 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── video ────────────────────────────────────────────────────────────────────
+
+
+def cmd_video(args: argparse.Namespace) -> int:
+    """Per-run videos annotated with the kinematic metric, any dataset.
+
+    Mirrors the event table's causal pass (same tracker, same awareness
+    source: ``featextr.extract_features``), so what you see is what Layer 2
+    scored. Default fps replays at the measured capture rate.
+    """
+    import cv2  # noqa: PLC0415
+
+    from riskam.kinematics import KinematicTracker, SceneRiskSmoother  # noqa: PLC0415
+    from riskam.ml import featextr, humandet  # noqa: PLC0415
+    from riskam.visualization import annotate_kinematic_frame  # noqa: PLC0415
+
+    ds = RUN_DATASETS[args.dataset]
+    cache = _cache(ds)
+    kin = KinematicParams(
+        d_safe_m=ds.platform.d_safe_m,
+        footprint_radius_m=ds.platform.footprint_radius_m,
+    )
+    videos_dir = _layer2_dir(ds) / "videos"
+    videos_dir.mkdir(parents=True, exist_ok=True)
+    runs = args.runs or list(ds.runs)
+
+    for run in runs:
+        frames = all_frames_in_time_order(ds, run)
+        first = next(
+            ((p, cache.get(run, p.stem)) for p in frames
+             if cache.get(run, p.stem) is not None),
+            None,
+        )
+        if first is None:
+            print(f"[skip] {run}: nothing cached; run `populate` first.")
+            continue
+
+        width = int(first[1].depth_viz.shape[1])
+        camera, _ = ds.camera_loader(run, width, ds.platform.sensor)
+        odom = ds.odom_index_cls(run) or None
+        tracker = KinematicTracker(kin, camera)
+        scene_smoother = SceneRiskSmoother(kin.release_tau_s, kin.hold_max_s)
+        humandet.reset_velocity_history()
+        t0 = float(first[0].stem)
+
+        cached = [p for p in frames if cache.get(run, p.stem) is not None]
+        span_s = float(cached[-1].stem) - t0 if len(cached) > 1 else 0.0
+        fps = args.fps or (
+            max(1.0, (len(cached) - 1) / span_s) if span_s > 0 else 10.0
+        )
+
+        writer = None
+        out_path = videos_dir / f"{run}.mp4"
+        n_written = 0
+        for img_path in frames:  # lazy: one frame's primitives at a time
+            prim = cache.get(run, img_path.stem)
+            if prim is None:
+                continue
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+            ts = float(img_path.stem)
+            ego = odom.twist_for(ts) if odom else None
+            h, w = prim.depth_viz.shape[:2]
+            extraction = featextr.extract_features(
+                prim, image_shape=(h, w), cmd_vel=None, d_safe=kin.d_safe_m
+            )
+            aware = (
+                np.asarray(extraction.features["gaze"], dtype=float)
+                if extraction.features is not None else None
+            )
+            kins = tracker.update(
+                ts, prim.human_bboxes, prim.bbox_depths_m,
+                prim.track_ids, ego=ego, awareness=aware,
+            )
+            instant = max(
+                (k.risk if k.risk is not None else k.hazard for k in kins),
+                default=0.0,
+            )
+            scene_risk = scene_smoother.update(ts, instant)
+            annotated = annotate_kinematic_frame(
+                img, prim.human_bboxes, kins, scene_risk,
+                scene_smoother.held, ego, run, ts - t0,
+            )
+            if writer is None:
+                fh, fw = annotated.shape[:2]
+                writer = cv2.VideoWriter(
+                    str(out_path), cv2.VideoWriter_fourcc(*"mp4v"),
+                    fps, (fw, fh),
+                )
+                if not writer.isOpened():  # codec fallback
+                    out_path = videos_dir / f"{run}.avi"
+                    writer = cv2.VideoWriter(
+                        str(out_path), cv2.VideoWriter_fourcc(*"XVID"),
+                        fps, (fw, fh),
+                    )
+            writer.write(annotated)
+            n_written += 1
+        if writer is not None:
+            writer.release()
+            print(f"[done] {run}: {n_written} frames @ {fps:.1f} fps -> {out_path}")
+    return 0
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
@@ -362,6 +468,14 @@ def main() -> int:
 
     pr = sub.add_parser("report", help="early_warning.json -> report.md")
     pr.set_defaults(func=cmd_report)
+
+    pv = sub.add_parser(
+        "video", help="per-run videos annotated with the kinematic metric"
+    )
+    pv.add_argument("--runs", nargs="*", default=None)
+    pv.add_argument("--fps", type=float, default=0.0,
+                    help="output frame rate (default: measured capture rate)")
+    pv.set_defaults(func=cmd_video)
 
     pa = sub.add_parser("all", help="populate -> build -> evaluate -> report")
     pa.add_argument("--device", default=None)
