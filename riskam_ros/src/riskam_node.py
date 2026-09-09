@@ -24,6 +24,14 @@ Improvements over the prototype:
                ``compute_*`` functions live in riskam.ml.subscores; per-frame
                status (ACTIVE / FALLBACK / UNAVAILABLE) flows through to the
                diagnostics topic so degraded sub-scores are visible.
+  Kinematic  — the awareness-modulated kinematic formulation
+               (riskam.kinematics) runs alongside the weighted score on the
+               same per-frame primitives and publishes on
+               /riskam/risk_kinematic. The weighted scoring path is unchanged;
+               camera intrinsics come from the camera_info topic (or the
+               camera_hfov_deg fallback), and until they are available the
+               kinematic channel reports ``awaiting_camera_info`` on
+               diagnostics instead of publishing.
 """
 
 import threading
@@ -33,7 +41,7 @@ import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import Twist
@@ -52,7 +60,15 @@ from riskam.ml.humandet import (
     SIGMA_PITCH_DEFAULT,
     SIGMA_YAW_DEFAULT,
 )
+from riskam.kinematics import (
+    CameraModel,
+    KinematicParams,
+    KinematicTracker,
+    PlanarTwist,
+    SceneRiskSmoother,
+)
 from riskam.ml.subscores import FrameInputs, RobotVelocity
+from riskam.platforms import BETA_UNAWARE_DEFAULT, TAU_REACTION_S_DEFAULT
 from riskam.score import (
     CROWD_ALPHA_DEFAULT,
     N_FRAMES_AGGREGATE,
@@ -95,6 +111,17 @@ class RiskAM(Node):
         self.declare_parameter("gaze_frontal_pitch_ratio", FRONTAL_PITCH_RATIO_DEFAULT)
         self.declare_parameter("visualize_image", True)
         self.declare_parameter("sync_slop", 0.1)
+        # Kinematic companion channel (riskam.kinematics). The weighted score
+        # path is unaffected by these; the kinematic formulation needs camera
+        # intrinsics, taken from ``camera_info_topic`` (default: the
+        # ``camera_info`` sibling of ``camera_topic``) or, if
+        # ``camera_hfov_deg`` > 0, from a pinhole fallback on that HFOV.
+        self.declare_parameter("publish_kinematic", True)
+        self.declare_parameter("camera_info_topic", "")
+        self.declare_parameter("camera_hfov_deg", 0.0)
+        self.declare_parameter("kinematic_tau_s", TAU_REACTION_S_DEFAULT)
+        self.declare_parameter("kinematic_beta", BETA_UNAWARE_DEFAULT)
+        self.declare_parameter("footprint_radius_m", 0.0)
 
         p = self.get_parameter
         self.camera_topic = p("camera_topic").value
@@ -113,6 +140,17 @@ class RiskAM(Node):
         self.gaze_sigma_pitch = p("gaze_sigma_pitch").value
         self.gaze_frontal_pitch_ratio = p("gaze_frontal_pitch_ratio").value
         sync_slop = p("sync_slop").value
+        self.publish_kinematic = p("publish_kinematic").value
+        self.camera_hfov_deg = p("camera_hfov_deg").value
+        camera_info_topic = p("camera_info_topic").value or (
+            self.camera_topic.rsplit("/", 1)[0] + "/camera_info"
+        )
+        self._kin_params = KinematicParams(
+            d_safe_m=self.d_safe,
+            tau_s=p("kinematic_tau_s").value,
+            beta=p("kinematic_beta").value,
+            footprint_radius_m=p("footprint_radius_m").value,
+        )
 
         # Validate weights.
         weight_sum = (
@@ -143,6 +181,14 @@ class RiskAM(Node):
         self._cmd_vel: Twist | None = None
         self._cmd_vel_lock = threading.Lock()
 
+        # ── Kinematic channel state ───────────────────────────────────────────
+        # Camera intrinsics arrive asynchronously; the tracker and smoother are
+        # created lazily on the first frame for which a camera model exists.
+        self._kin_intrinsics: tuple[float, float] | None = None  # (fx, cx)
+        self._kin_intrinsics_lock = threading.Lock()
+        self._kin_tracker: KinematicTracker | None = None
+        self._kin_smoother: SceneRiskSmoother | None = None
+
         # ── Subscriptions ─────────────────────────────────────────────────────
         color_sub = message_filters.Subscriber(self, Image, self.camera_topic)
         depth_sub = message_filters.Subscriber(self, Image, self.depth_topic)
@@ -152,9 +198,16 @@ class RiskAM(Node):
         self._sync.registerCallback(self._synced_callback)
 
         self.create_subscription(Twist, self.cmd_vel_topic, self._cmd_vel_callback, 10)
+        if self.publish_kinematic:
+            self.create_subscription(
+                CameraInfo, camera_info_topic, self._camera_info_callback, 10
+            )
 
         # ── Publishers ────────────────────────────────────────────────────────
         self.score_pub = self.create_publisher(FloatStamped, "/riskam/risk_score", 10)
+        self.kinematic_pub = self.create_publisher(
+            FloatStamped, "/riskam/risk_kinematic", 10
+        )
         self.gaze_pub = self.create_publisher(FloatStamped, "/riskam/gaze", 10)
         self.depth_pub = self.create_publisher(FloatStamped, "/riskam/depth", 10)
         self.x_pose_pub = self.create_publisher(FloatStamped, "/riskam/x_pose", 10)
@@ -185,6 +238,34 @@ class RiskAM(Node):
     def _cmd_vel_callback(self, msg: Twist) -> None:
         with self._cmd_vel_lock:
             self._cmd_vel = msg
+
+    def _camera_info_callback(self, msg: CameraInfo) -> None:
+        # First message wins; intrinsics are static for a given stream.
+        with self._kin_intrinsics_lock:
+            if self._kin_intrinsics is None:
+                self._kin_intrinsics = (float(msg.k[0]), float(msg.k[2]))
+                self.get_logger().info(
+                    f"Kinematic channel: camera intrinsics received "
+                    f"(fx={msg.k[0]:.1f}, cx={msg.k[2]:.1f})"
+                )
+
+    def _ensure_kinematics(self, image_width: int) -> bool:
+        """Create the tracker/smoother once a camera model is available."""
+        if self._kin_tracker is not None:
+            return True
+        with self._kin_intrinsics_lock:
+            intrinsics = self._kin_intrinsics
+        if intrinsics is not None:
+            camera = CameraModel.from_intrinsics(*intrinsics)
+        elif self.camera_hfov_deg > 0.0:
+            camera = CameraModel.from_hfov(self.camera_hfov_deg, image_width)
+        else:
+            return False
+        self._kin_tracker = KinematicTracker(self._kin_params, camera)
+        self._kin_smoother = SceneRiskSmoother(
+            self._kin_params.release_tau_s, self._kin_params.hold_max_s
+        )
+        return True
 
     # ── Processing thread ─────────────────────────────────────────────────────
 
@@ -247,6 +328,46 @@ class RiskAM(Node):
             w_approach=self.w_approach,
         )
 
+        # ── Kinematic companion channel ───────────────────────────────────────
+        # Runs on the same primitives after the weighted score; the weighted
+        # path above is untouched. Header stamps are the explicit timestamps
+        # the kinematic tracker requires.
+        kin_risk = None
+        kin_status = "disabled"
+        if self.publish_kinematic:
+            if self._ensure_kinematics(cv_image.shape[1]):
+                stamp = color_msg.header.stamp
+                t_s = float(stamp.sec) + float(stamp.nanosec) * 1e-9
+                ego = (
+                    PlanarTwist(
+                        t_s=t_s,
+                        vx_ms=float(cmd_vel_twist.linear.x),
+                        vy_ms=float(cmd_vel_twist.linear.y),
+                        wz_rads=float(cmd_vel_twist.angular.z),
+                    )
+                    if cmd_vel_twist is not None
+                    else None
+                )
+                if result.features is not None:
+                    kins = self._kin_tracker.update(
+                        t_s,
+                        result.human_bboxes,
+                        result.bbox_depths_m,
+                        result.track_ids,
+                        ego=ego,
+                        awareness=result.features["gaze"],
+                    )
+                    fused = [k.risk for k in kins]
+                    kin_idx = int(np.argmax(fused))
+                    kin_risk = self._kin_smoother.update(t_s, float(fused[kin_idx]))
+                    kin_status = kins[kin_idx].status.value
+                else:
+                    self._kin_tracker.update(t_s, [], [], [], ego=ego)
+                    kin_risk = self._kin_smoother.update(t_s, 0.0)
+                    kin_status = "no_human"
+            else:
+                kin_status = "awaiting_camera_info"
+
         # ── Sub-score extraction for publication ──────────────────────────────
         if result.features is not None:
             proximity_sub = float(np.max(result.features["proximity"]))
@@ -270,6 +391,8 @@ class RiskAM(Node):
         header = color_msg.header
 
         self.score_pub.publish(_float_stamped(header, risk_score))
+        if kin_risk is not None:
+            self.kinematic_pub.publish(_float_stamped(header, kin_risk))
         self.depth_pub.publish(_float_stamped(header, proximity_sub))
         self.gaze_pub.publish(_float_stamped(header, gaze_sub))
         self.x_pose_pub.publish(_float_stamped(header, x_pose_sub))
@@ -288,6 +411,8 @@ class RiskAM(Node):
             risk_score=risk_score,
             subscore_status=result.subscore_status,
             subscore_reasons=result.subscore_reasons,
+            kin_risk=kin_risk,
+            kin_status=kin_status,
         )
 
     def _publish_diagnostics(
@@ -299,6 +424,8 @@ class RiskAM(Node):
         risk_score,
         subscore_status: dict,
         subscore_reasons: dict,
+        kin_risk=None,
+        kin_status: str = "disabled",
     ):
         status = DiagnosticStatus()
         status.name = "riskam"
@@ -319,7 +446,12 @@ class RiskAM(Node):
             KeyValue(key="n_persons", value=str(n_persons)),
             KeyValue(key="n_tracks", value=str(n_tracks)),
             KeyValue(key="risk_score", value=f"{risk_score:.4f}"),
+            KeyValue(key="kinematic_status", value=kin_status),
         ]
+        if kin_risk is not None:
+            status.values.append(
+                KeyValue(key="kinematic_risk", value=f"{kin_risk:.4f}")
+            )
         for name, st in subscore_status.items():
             status.values.append(KeyValue(key=f"subscore_{name}", value=st.value))
             reason = subscore_reasons.get(name, "")

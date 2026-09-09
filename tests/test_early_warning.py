@@ -11,6 +11,7 @@ from riskam.early_warning import (
     frame_metrics,
     matched_recall_headline,
     render_report_md,
+    ssm_decomposition,
     threshold_for_recall,
 )
 from riskam.hindsight import OracleParams
@@ -189,6 +190,46 @@ def test_evaluate_event_table_shape_and_sanity():
     md = render_report_md(results, "toy")
     assert "Matched-recall headline" in md
     assert "r10_T2s" in md
+
+
+def test_ssm_decomposition_pure_awareness_case():
+    """Stock worst-case is already its own best tuning (two score levels), so
+    the whole headline is the awareness increment."""
+    rows = constructed_table()
+    d = ssm_decomposition(rows, min_onsets_per_run=1)["r10_T3s"]
+    assert d is not None and d["n_runs"] == 1
+    w = d["weighted"]
+    assert w["tuning_pct"] == pytest.approx(0.0, abs=1e-6)
+    assert w["awareness_pct"] > 50.0
+    assert w["headline_pct"] == pytest.approx(
+        w["tuning_pct"] + w["awareness_pct"], abs=1e-6
+    )
+
+
+def test_ssm_decomposition_pure_tuning_case():
+    """When the spurious worst-case stretches are weak (margin −0.1), a
+    per-run re-tune of the reference itself removes them — the headline is
+    all calibration, no awareness increment."""
+    rows = constructed_table()
+    for row in rows:
+        t = row["t_s"]
+        if (5.0 <= t < 15.0) or (20.0 <= t < 24.0):
+            row["ssm_margin_worst"] = -0.1  # weak spurious alarms
+    d = ssm_decomposition(rows, min_onsets_per_run=1)["r10_T3s"]
+    w = d["weighted"]
+    assert w["tuning_pct"] > 50.0
+    assert w["awareness_pct"] == pytest.approx(0.0, abs=1e-6)
+    assert w["headline_pct"] == pytest.approx(w["tuning_pct"], abs=1e-6)
+
+
+def test_ssm_decomposition_run_filter_and_report_section():
+    rows = constructed_table()
+    # Default filter: the toy run has 1 onset < 10 → no qualifying runs.
+    results = evaluate_event_table(rows)
+    assert results["ssm_decomposition"]["r10_T3s"] is None
+    md = render_report_md(results, "toy")
+    assert "threshold tuning vs awareness" in md
+    assert "no qualifying runs" in md
 
 
 def test_channel_scores_sign_and_inf():

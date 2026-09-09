@@ -48,6 +48,11 @@ class CachedFrameFeatures:
     track_ids: list                      # list of int | None
     bbox_depths_m: list                  # depth in metres per bbox
     depth_viz: np.ndarray                # (H, W) uint8 visualisation
+    # Per-person eye-region texture (facegate.measure_face_texture); NaN =
+    # no face triple. None = cached before the field existed (the gaze gate
+    # then degrades to geometry-only; refresh via
+    # scripts/add_face_texture_to_cache.py).
+    face_texture_np: np.ndarray | None = None
 
     def to_npz(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +67,12 @@ class CachedFrameFeatures:
             [(-1 if t is None else int(t)) for t in self.track_ids],
             dtype=np.int64,
         )
+        texture_present = self.face_texture_np is not None
+        texture = (
+            self.face_texture_np
+            if texture_present
+            else np.zeros((0,), dtype=np.float32)
+        )
         np.savez_compressed(
             path,
             bboxes=np.asarray(self.human_bboxes, dtype=np.float32).reshape(-1, 4),
@@ -70,6 +81,8 @@ class CachedFrameFeatures:
             track_ids=track_arr,
             bbox_depths_m=np.asarray(self.bbox_depths_m, dtype=np.float32),
             depth_viz=self.depth_viz,
+            face_texture=texture,
+            face_texture_present=np.array([texture_present]),
         )
 
     @classmethod
@@ -87,12 +100,20 @@ class CachedFrameFeatures:
         ]
         bbox_depths_m = data["bbox_depths_m"].tolist()
         depth_viz = data["depth_viz"]
+        # Backward-compatible: caches written before the face-texture field
+        # simply lack the keys — load as None (geometry-only gating).
+        face_texture = None
+        if "face_texture_present" in data.files and bool(
+            data["face_texture_present"][0]
+        ):
+            face_texture = data["face_texture"]
         return cls(
             human_bboxes=bboxes,
             keypoints_np=keypoints,
             track_ids=track_ids,
             bbox_depths_m=bbox_depths_m,
             depth_viz=depth_viz,
+            face_texture_np=face_texture,
         )
 
 

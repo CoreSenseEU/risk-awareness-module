@@ -109,6 +109,17 @@ defaults from that file.
 | `n_frames_aggregate` | `5` | Frames in each track's risk-history window |
 | `crowd_alpha` | `0.1` | Crowd-penalty α: `scene_risk = max(per_person)·(1 + α·log(1 + n_extra))` |
 
+### Kinematic companion channel
+
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| `publish_kinematic` | `true` | Compute and publish the awareness-modulated kinematic formulation alongside the weighted score (`/riskam/risk_kinematic`). The weighted path is unaffected |
+| `camera_info_topic` | `""` | Intrinsics source; empty → the `camera_info` sibling of `camera_topic` (first message wins) |
+| `camera_hfov_deg` | `0.0` | Pinhole fallback when no `camera_info` is available (e.g. `69.0` D4xx, `58.0` Xtion); `0` → wait for `camera_info` |
+| `kinematic_tau_s` | `2.0` s | Reaction window τ of the trajectory hazard |
+| `kinematic_beta` | `1.0` | Oblivious-human penalty β in `hazard · (1 + β(1 − awareness))` |
+| `footprint_radius_m` | `0.0` m | Robot footprint radius; miss distance is measured from the robot surface |
+
 ### Other
 
 | Parameter | Default | Purpose |
@@ -145,7 +156,8 @@ All topic strings are node parameters (no longer hardcoded) and are mirrored in
 
 | Topic | Type | Notes |
 |-------|------|-------|
-| `/riskam/risk_score` | `riskam_msgs/FloatStamped` | Aggregated scene risk in [0, 1] |
+| `/riskam/risk_score` | `riskam_msgs/FloatStamped` | Aggregated scene risk in [0, 1] (weighted formulation, the field-validated default) |
+| `/riskam/risk_kinematic` | `riskam_msgs/FloatStamped` | Awareness-modulated kinematic scene risk in [0, 1]; silent until camera intrinsics are available |
 | `/riskam/depth` | `riskam_msgs/FloatStamped` | Per-frame max proximity sub-score |
 | `/riskam/gaze` | `riskam_msgs/FloatStamped` | Per-frame max gaze sub-score |
 | `/riskam/x_pose` | `riskam_msgs/FloatStamped` | Per-frame max x_offset sub-score |

@@ -9,6 +9,117 @@ Item codes (T1.x / T2.x / T3.x) refer to the original improvement-plan roadmap.
 
 ---
 
+## 2026-09-02 — Awareness measurability gate (`riskam/ml/facegate.py`)
+
+Motivated by a cross-dataset finding: on privacy-defaced data (crowdbot_v2),
+YOLO11-Pose draws a canonical **frontal-face template inside the blur
+ellipses** — top gaze reads cluster at yaw ≡ 0.00 / pitch ≡ 0.70 (the scoring
+Gaussian's exact ideal) at 3–10 px inter-eye, with confirmed false-"aware"
+cases at close range (a phone-starer at 2.4 m reading gaze 0.85). Fabricated
+awareness is doubly unsafe: it lowers fused risk and shrinks the
+awareness-modulated SSM separation exactly where nothing was measured.
+
+The gate declares a gaze reading a *measurement* only when (1) inter-eye ≥
+7 px (**resolution floor** — below it yaw quantisation noise rivals
+σ_yaw) and (2) eye-patch Laplacian variance ≥ 75 (**face-texture floor** —
+calibrated so ~90% of the unblurred cs_robocup_2023 reference passes while
+~4 in 5 hand-labelled defacing blobs fail). Unmeasurable faces score gaze 0
+(unaware — conservative for the weighted sum, the kinematic fusion, and the
+SSM margins alike) and the gaze sub-score status degrades ACTIVE → FALLBACK
+with a "k/n faces unmeasurable" reason, per the input-availability contract.
+
+- **`riskam/ml/facegate.py`** — the measurement (`measure_face_texture`,
+  parameter-independent, cached) and the decision (`gaze_measurable`, two
+  documented constants in the spirit of `d_safe`/near-clip, sweepable via
+  `gate_min_inter_eye_px` / `gate_min_face_texture`).
+- **`feature_cache.py`** — `face_texture_np` per person; backward-compatible
+  loading (pre-gate caches → geometry-only gating);
+  **`scripts/add_face_texture_to_cache.py`** backfills existing caches from
+  frames + cached keypoints (CPU, atomic, resumable — no YOLO re-run, IDs
+  untouched).
+- **`subscores.py` / `featextr.py`** — `compute_gaze` applies the gate and
+  exposes the per-person `measurable` mask; `FrameExtraction.gaze_measurable`;
+  the ROS node inherits the behaviour through the shared path (per-person
+  cost: one small Laplacian, ~µs).
+- **`event_table.py`** — new columns `gaze_measured` (max-risk person) and
+  `n_faces_measured`.
+- Known residuals (documented in the module docstring): keypoints mislocalised
+  onto textured clothing pass the texture floor (gaze arbitrary, rarely grants
+  credit; per-keypoint confidence is the natural extension), and **printed
+  faces** — a crowdbot_v2 shop-window poster is detected as two persons whose
+  sharp frontal faces pass both floors and grant up to ~0.9 m of separation
+  credit. Liveness is out of scope; flagged for deployments amid ads/posters.
+- Tests: `tests/test_facegate.py` (13); full suite green (318 + 1 skipped).
+- **Gated re-run (all three datasets, caches backfilled — 0 missing frames,
+  event tables rebuilt):** the awareness-modulated-SSM alarm-time reduction is
+  **11–19% on cs_robocup_2023** (was 8–23% ungated) with the binding relaxers
+  spot-verified as genuine attentive people; **~0% on cs_robocup_2024**
+  (unchanged behavioural null); crowdbot_v2 retains 47–55% numerically at
+  r ≤ 1 m **but the credit is attributable to the characterised residuals
+  (poster faces + off-face keypoints), so no awareness claim is made on the
+  defaced dataset** — the gate refuses ~93% of its former strong awareness
+  reads (100% of zero-measured frames have identical worst/aware margins;
+  wiring invariant verified). The pre-event anticipation headline is
+  unaffected: `risk_a` best in all 18 RoboCup cells, AUC shifts ≤ 0.006.
+
+## 2026-09-09 — Kinematic formulation wired into the live node
+
+The awareness-modulated kinematic formulation (`riskam/kinematics.py`) now
+runs in `riskam_node` alongside the weighted score, on the same per-frame
+primitives — completing the software deliverable: both scoring formulations
+are runnable on the robot. The weighted scoring path is byte-identical
+(same code, same defaults, same topics), so the manufacturing-testbed field
+validation continues to describe the default output exactly.
+
+- **Node** — computes the kinematic scene risk per frame (gated gaze as
+  awareness, header stamps as the explicit timestamps, latest `cmd_vel` as
+  the ego twist for the single-observation rung) and publishes it on
+  **`/riskam/risk_kinematic`**; diagnostics gain `kinematic_status` (the
+  max-risk person's ladder rung, or `no_human` / `awaiting_camera_info` /
+  `disabled`) and `kinematic_risk`.
+- **Intrinsics** — from the `camera_info` sibling of the camera topic
+  (first message wins) or a `camera_hfov_deg` pinhole fallback; until one is
+  available the channel reports `awaiting_camera_info` instead of guessing.
+- **Params** — `publish_kinematic` (default on), `camera_info_topic`,
+  `camera_hfov_deg`, `kinematic_tau_s`, `kinematic_beta`,
+  `footprint_radius_m`; `d_safe` shared with proximity. Added to
+  `riskam_config.yml`.
+- **Shared path** — `FrameExtraction.bbox_depths_m` passes the raw
+  per-person depths (metres) through to consumers; test-covered.
+- **Cost, measured** (cached-frame replay of the shipped path, desktop CPU):
+  p50 114 µs / p95 215 µs per frame at 5–9 persons (crowdbot_v2), p50 7 µs
+  at typical occupancy (cs_robocup_2023) — ≤ 0.25% of the 90 ms frame
+  budget. The field campaign predates this channel, like the gate; the
+  addition leaves the weighted path and its timing claims unchanged.
+- Suite green (321 + 1 skipped); node change pending a smoke run on a
+  ROS 2 machine (colcon build + launch) — it cannot be executed on the
+  macOS development host.
+
+## 2026-09-03 — SSM decomposition promoted into the standard report
+
+The tuning-vs-awareness decomposition (first computed in the 2026-07-07
+investigation script) is now a first-class part of the Layer-2 evaluation:
+`early_warning.ssm_decomposition` (per-run matched recall against the stock
+worst-case reference; headline = tuning + awareness by construction;
+duration-weighted aggregation; runs with < 10 onsets excluded) is computed by
+`evaluate_event_table` and rendered as a report section. 3 new tests
+(pure-awareness, pure-tuning, run-filter cases); suite green (321 + 1).
+
+Results on the gated tables — the citable, controlled form of the headline:
+
+- **cs_robocup_2023: awareness increment +9 to +21 pp in all 9 cells**
+  (headlines 10–34%, of which tuning 0–16 pp) — measured awareness alone
+  buys 9–21 points of alarm time at equal recall, beyond any calibration.
+- **cs_robocup_2024: increment −5 to +3 pp** — the apparent headline (≤ 15%)
+  is threshold calibration; the behavioural null now has its control.
+- **crowdbot_v2: increment ≈ 0 or negative** (r10: +1–6 pp on 67–72 pp of
+  tuning; r15: −5 to −7 pp; r05 cells have no qualifying runs) — the gated
+  residual credit is calibration, not awareness, closing that dataset's story.
+- Context split within 2024 (bystander-ish gpsr/stickler vs interaction-heavy
+  carry/receptionist/restaurant/storing): **no separation** (~0–3 pp both) —
+  the scope boundary is environmental (between recordings/venues), not
+  between task labels within one venue.
+
 ## 2026-07-17 — crowdbot_v2: first outdoor-crowd dataset, RiskAM-ified end-to-end
 
 The CrowdBot v2 recordings (EPFL Qolo standing mobility robot, RDS shared

@@ -43,7 +43,7 @@ import math
 import numpy as np
 
 from riskam.ml import depth as depth_mod
-from riskam.ml import humandet
+from riskam.ml import facegate, humandet
 
 
 # ── Status enum ──────────────────────────────────────────────────────────────
@@ -115,6 +115,10 @@ class SubScoreResult:
     values: np.ndarray                      # (n_persons,) float in [0, 1]
     status: SubScoreStatus
     reason: str = ""                        # short diagnostic text
+    # Per-person measurement mask (gaze only): True = the value is a
+    # measurement, False = the input was declared unmeasurable and the value
+    # is the conservative fallback. None for sub-scores without the concept.
+    measurable: np.ndarray | None = None
 
 
 @dataclass
@@ -127,6 +131,12 @@ class FrameExtraction:
     subscore_status: dict                   # {name: SubScoreStatus}
     subscore_reasons: dict = field(default_factory=dict)  # {name: str}
     track_ids: list = field(default_factory=list)
+    # Per-person gaze measurability (see compute_gaze); None if no humans.
+    gaze_measurable: np.ndarray | None = None
+    # Per-person depth readings in metres (pass-through from the primitives),
+    # so consumers that need physical ranges — the kinematic formulation in
+    # particular — do not have to re-derive them from the proximity scores.
+    bbox_depths_m: list = field(default_factory=list)
 
 
 # ── Per-sub-score computation ────────────────────────────────────────────────
@@ -155,14 +165,25 @@ def compute_gaze(
     sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
     algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
+    face_texture: np.ndarray | None = None,
+    gate_min_inter_eye_px: float = facegate.GATE_MIN_INTER_EYE_PX_DEFAULT,
+    gate_min_face_texture: float = facegate.GATE_MIN_FACE_TEXTURE_DEFAULT,
 ) -> SubScoreResult:
-    """Gaze sub-score. Requires only RGB → always ACTIVE when persons detected.
+    """Gaze sub-score with the awareness measurability gate.
 
     ``algorithm`` selects the underlying computation (``head_pose`` for the
-    post-T1.3 algorithm, ``eye_symmetry`` for the pre-T1.3 baseline). The
-    status is ACTIVE for either algorithm: the input-availability contract
-    is orthogonal to which algorithm was chosen. The algorithm name is
-    available in each experiment's ``params`` for ablation-aware reporting.
+    post-T1.3 algorithm, ``eye_symmetry`` for the pre-T1.3 baseline). On top
+    of either algorithm, :mod:`riskam.ml.facegate` decides per person whether
+    the reading is a *measurement*: unresolvable (inter-eye below the
+    resolution floor) or textureless (defaced/occluded) faces are declared
+    unmeasurable and score gaze 0 — treated as unaware, the conservative
+    direction for every consumer (weighted sum, kinematic fusion, SSM).
+
+    Status: ACTIVE when every detected face is measurable; FALLBACK when any
+    is not (the value is the declared conservative fallback, and the reason
+    carries the count). ``measurable`` exposes the per-person mask.
+    ``face_texture`` is the cached per-person statistic; ``None`` (stale
+    cache) degrades the gate to geometry-only.
     """
     values = np.asarray(
         humandet.gaze_scores(
@@ -174,7 +195,24 @@ def compute_gaze(
         ),
         dtype=float,
     )
-    return SubScoreResult(values=values, status=SubScoreStatus.ACTIVE)
+    measurable = facegate.gaze_measurable(
+        keypoints_np,
+        face_texture,
+        min_inter_eye_px=gate_min_inter_eye_px,
+        min_face_texture=gate_min_face_texture,
+    )
+    values = np.where(measurable, values, 0.0)
+    n_unmeasured = int((~measurable).sum())
+    if n_unmeasured == 0:
+        return SubScoreResult(
+            values=values, status=SubScoreStatus.ACTIVE, measurable=measurable
+        )
+    return SubScoreResult(
+        values=values,
+        status=SubScoreStatus.FALLBACK,
+        reason=f"{n_unmeasured}/{len(values)} faces unmeasurable",
+        measurable=measurable,
+    )
 
 
 # Robot speeds below this are treated as "stationary" and trigger the x_offset

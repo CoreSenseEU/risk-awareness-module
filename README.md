@@ -84,7 +84,8 @@ The defaults below are enough to get a working score; the **complete** parameter
 
 | Topic | Type | Notes |
 |-------|------|-------|
-| `/riskam/risk_score` | `riskam_msgs/FloatStamped` | Aggregated scene risk in [0, 1] |
+| `/riskam/risk_score` | `riskam_msgs/FloatStamped` | Aggregated scene risk in [0, 1] (weighted formulation, the field-validated default) |
+| `/riskam/risk_kinematic` | `riskam_msgs/FloatStamped` | Awareness-modulated kinematic scene risk (see `docs/experimental-metrics.md`); needs camera intrinsics |
 | `/riskam/depth` · `/gaze` · `/x_pose` · `/approach` | `riskam_msgs/FloatStamped` | Per-frame max of each sub-score |
 | `/riskam/annotated_image` | `sensor_msgs/Image` | Visualisation overlay ([read it here](docs/visualization.md)) |
 | `/riskam/diagnostics` | `diagnostic_msgs/DiagnosticArray` | Timing, person/track count, per-sub-score status (`active`/`fallback`/`unavailable`); level escalates to `WARN` on any non-`active` sub-score |

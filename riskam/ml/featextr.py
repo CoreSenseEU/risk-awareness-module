@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 
 from riskam.feature_cache import CachedFrameFeatures, FeatureCache
-from riskam.ml import depth as depth_mod, humandet
+from riskam.ml import depth as depth_mod, facegate, humandet
 from riskam.ml.depth import (
     D_SAFE_DEFAULT,
     NEAR_CLIP_BBOX_MIN_FRAC_DEFAULT,
@@ -92,6 +92,7 @@ def extract_primitives(
         track_ids=track_ids,
         bbox_depths_m=bbox_depths_m,
         depth_viz=depth_viz,
+        face_texture_np=facegate.measure_face_texture(inputs.rgb, keypoints),
     )
 
 
@@ -107,6 +108,8 @@ def extract_features(
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
     gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
+    gate_min_inter_eye_px: float = facegate.GATE_MIN_INTER_EYE_PX_DEFAULT,
+    gate_min_face_texture: float = facegate.GATE_MIN_FACE_TEXTURE_DEFAULT,
 ) -> FrameExtraction:
     """Compute the four sub-scores from cached primitives + scoring params.
 
@@ -129,6 +132,7 @@ def extract_features(
             },
             subscore_reasons={"approach": "no detections"},
             track_ids=[],
+            bbox_depths_m=[],
         )
 
     proximity = compute_proximity(primitives.bbox_depths_m, d_safe=d_safe)
@@ -138,6 +142,9 @@ def extract_features(
         sigma_pitch=gaze_sigma_pitch,
         frontal_pitch_ratio=gaze_frontal_pitch_ratio,
         algorithm=gaze_algorithm,
+        face_texture=primitives.face_texture_np,
+        gate_min_inter_eye_px=gate_min_inter_eye_px,
+        gate_min_face_texture=gate_min_face_texture,
     )
     image_h, image_w = image_shape
     x_offset = compute_x_offset(
@@ -177,6 +184,8 @@ def extract_features(
         subscore_status=status,
         subscore_reasons=reasons,
         track_ids=primitives.track_ids,
+        gaze_measurable=gaze.measurable,
+        bbox_depths_m=primitives.bbox_depths_m,
     )
 
 
@@ -193,6 +202,8 @@ def extract(
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
     gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
+    gate_min_inter_eye_px: float = facegate.GATE_MIN_INTER_EYE_PX_DEFAULT,
+    gate_min_face_texture: float = facegate.GATE_MIN_FACE_TEXTURE_DEFAULT,
     track_bboxes: bool = True,
 ) -> FrameExtraction:
     """Run the full per-frame feature-extraction pipeline (no cache)."""
@@ -213,6 +224,8 @@ def extract(
         gaze_sigma_pitch=gaze_sigma_pitch,
         gaze_frontal_pitch_ratio=gaze_frontal_pitch_ratio,
         gaze_algorithm=gaze_algorithm,
+        gate_min_inter_eye_px=gate_min_inter_eye_px,
+        gate_min_face_texture=gate_min_face_texture,
     )
 
 
@@ -229,6 +242,8 @@ def extract_with_cache(
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
     gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
+    gate_min_inter_eye_px: float = facegate.GATE_MIN_INTER_EYE_PX_DEFAULT,
+    gate_min_face_texture: float = facegate.GATE_MIN_FACE_TEXTURE_DEFAULT,
     track_bboxes: bool = True,
 ) -> FrameExtraction:
     """Run the pipeline using a feature cache for the inference half.
@@ -256,6 +271,8 @@ def extract_with_cache(
         gaze_sigma_pitch=gaze_sigma_pitch,
         gaze_frontal_pitch_ratio=gaze_frontal_pitch_ratio,
         gaze_algorithm=gaze_algorithm,
+        gate_min_inter_eye_px=gate_min_inter_eye_px,
+        gate_min_face_texture=gate_min_face_texture,
     )
 
 
@@ -271,6 +288,8 @@ def extract_human_risk_awareness_features(
     gaze_sigma_pitch: float = humandet.SIGMA_PITCH_DEFAULT,
     gaze_frontal_pitch_ratio: float = humandet.FRONTAL_PITCH_RATIO_DEFAULT,
     gaze_algorithm: str = humandet.GAZE_ALGORITHM_DEFAULT,
+    gate_min_inter_eye_px: float = facegate.GATE_MIN_INTER_EYE_PX_DEFAULT,
+    gate_min_face_texture: float = facegate.GATE_MIN_FACE_TEXTURE_DEFAULT,
     track_bboxes: bool = True,
 ) -> FrameExtraction:
     """Backwards-compatible wrapper around :func:`extract`."""
@@ -284,5 +303,7 @@ def extract_human_risk_awareness_features(
         gaze_sigma_pitch=gaze_sigma_pitch,
         gaze_frontal_pitch_ratio=gaze_frontal_pitch_ratio,
         gaze_algorithm=gaze_algorithm,
+        gate_min_inter_eye_px=gate_min_inter_eye_px,
+        gate_min_face_texture=gate_min_face_texture,
         track_bboxes=track_bboxes,
     )

@@ -280,6 +280,7 @@ def evaluate_event_table(
             results["cells"][cell_key] = cell
 
     results["headline"] = matched_recall_headline(rows, oracle_params)
+    results["ssm_decomposition"] = ssm_decomposition(rows, oracle_params)
     return results
 
 
@@ -443,6 +444,96 @@ def matched_recall_headline(
     return headline
 
 
+def ssm_decomposition(
+    rows: list[dict],
+    oracle_params: OracleParams = OracleParams(),
+    ref: str = "ssm_worst",
+    cand: str = "ssm_aware",
+    min_onsets_per_run: int = 10,
+) -> dict:
+    """Decompose the SSM headline into threshold tuning + awareness increment.
+
+    The matched-recall headline conflates two effects: part of the savings is
+    available to anyone who simply *re-calibrates the stock worst-case
+    formula* to the same recall (the reference's native margin ≤ 0 operating
+    point is deliberately conservative), and only the remainder is bought by
+    measuring awareness. This function makes that split explicit — the honest
+    control for the headline (first computed in the 2026-07-07 investigation,
+    promoted here into the standard report).
+
+    Per qualifying run (≥ ``min_onsets_per_run`` onsets in the cell):
+
+    - stock reference: ``ref`` at its native threshold (margin ≤ 0) → recall
+      ``r0`` and alarm-time ``at0``;
+    - re-tuned reference: ``ref`` threshold matched per run to ``r0`` →
+      ``at_w`` (calibration-only savings);
+    - candidate: ``cand`` threshold matched per run to ``r0`` → ``at_a``.
+
+    ``headline = 1 − at_a/at0``, ``tuning = 1 − at_w/at0``, ``awareness =
+    (at_w − at_a)/at0``; headline = tuning + awareness by construction.
+    Aggregation across runs is duration-weighted. Thresholds are matched per
+    run (the per-deployment setting), so these numbers are the citable form;
+    the pooled table above them remains for continuity.
+    """
+    runs = _per_run(rows)
+    out: dict = {}
+    for r in oracle_params.r_grid_m:
+        for T in oracle_params.t_grid_s:
+            key = f"{r_tag(r)}_{t_tag(T)}"
+            per_run: dict = {}
+            for run, rr in sorted(runs.items()):
+                t = np.array([row["t_s"] for row in rr])
+                onsets = _run_onsets(rr, r)
+                if len(onsets) < min_onsets_per_run:
+                    continue
+                in_ev = _column(rr, f"in_event_{r_tag(r)}")
+                w = channel_scores(rr, ref)
+                a = channel_scores(rr, cand)
+                stock = episode_metrics(t, w, 0.0, onsets, in_ev, T)
+                r0, at0 = stock["recall_events"], stock["alarm_time_frac"]
+                if not r0 or at0 <= 0:
+                    continue
+                thr_w = threshold_for_recall(t, w, onsets, T, r0)
+                thr_a = threshold_for_recall(t, a, onsets, T, r0)
+                if thr_w is None or thr_a is None:
+                    continue
+                at_w = episode_metrics(t, w, thr_w, onsets, in_ev, T)[
+                    "alarm_time_frac"
+                ]
+                at_a = episode_metrics(t, a, thr_a, onsets, in_ev, T)[
+                    "alarm_time_frac"
+                ]
+                per_run[run] = {
+                    "n_events": int(len(onsets)),
+                    "recall_stock": float(r0),
+                    "alarm_time_stock": float(at0),
+                    "alarm_time_tuned_ref": float(at_w),
+                    "alarm_time_candidate": float(at_a),
+                    "headline_pct": 100.0 * (1.0 - at_a / at0),
+                    "tuning_pct": 100.0 * (1.0 - at_w / at0),
+                    "awareness_pct": 100.0 * (at_w - at_a) / at0,
+                    "duration_s": float(t[-1] - t[0]),
+                }
+            if not per_run:
+                out[key] = None
+                continue
+            wts = np.array([v["duration_s"] for v in per_run.values()])
+            wmean = lambda field: float(np.average(  # noqa: E731
+                [v[field] for v in per_run.values()], weights=wts
+            ))
+            out[key] = {
+                "n_runs": len(per_run),
+                "n_events": int(sum(v["n_events"] for v in per_run.values())),
+                "per_run": per_run,
+                "weighted": {
+                    "headline_pct": wmean("headline_pct"),
+                    "tuning_pct": wmean("tuning_pct"),
+                    "awareness_pct": wmean("awareness_pct"),
+                },
+            }
+    return out
+
+
 # ── report rendering ─────────────────────────────────────────────────────────
 
 
@@ -513,5 +604,41 @@ def render_report_md(results: dict, dataset: str) -> str:
         "Cells with fewer than 10 onsets are unreliable; the headline cell is "
         "the largest (r, T) with ≥10 pooled onsets (pre-registered rule)."
     )
+    decomp = results.get("ssm_decomposition")
+    if decomp:
+        lines.append("")
+        lines.append(
+            "## Decomposition: threshold tuning vs awareness increment "
+            "(per-run matched recall)"
+        )
+        lines.append("")
+        lines.append(
+            "The headline above conflates two effects: savings available by "
+            "simply **re-calibrating the stock worst-case formula** to the "
+            "same recall (its native margin ≤ 0 operating point is "
+            "deliberately conservative), and the increment **only measured "
+            "awareness buys**. Here each run's thresholds are matched to the "
+            "stock reference's own recall on that run (the per-deployment "
+            "setting); runs with fewer than 10 onsets are excluded; "
+            "aggregation is duration-weighted. By construction "
+            "headline = tuning + awareness."
+        )
+        lines.append("")
+        lines.append(
+            "| cell | runs | events | headline | = tuning | + awareness |"
+        )
+        lines.append("|---|---|---|---|---|---|")
+        for cell_key, d in decomp.items():
+            if d is None:
+                lines.append(
+                    f"| {cell_key} | — | — | — | — | no qualifying runs |"
+                )
+                continue
+            wtd = d["weighted"]
+            lines.append(
+                f"| {cell_key} | {d['n_runs']} | {d['n_events']} | "
+                f"{wtd['headline_pct']:.0f}% | {wtd['tuning_pct']:.0f}% | "
+                f"**{wtd['awareness_pct']:.0f}%** |"
+            )
     lines.append("")
     return "\n".join(lines)

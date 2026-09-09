@@ -59,6 +59,7 @@ def event_columns(params: OracleParams = OracleParams()) -> list[str]:
         "n_humans",
         "m0_risk", "m0_class",
         "proximity", "gaze", "x_offset", "approach",
+        "gaze_measured", "n_faces_measured",
         "d_m", "bearing_rad", "closing_ms", "tan_speed_ms",
         "t_cpa_s", "d_min_m", "inv_ttc",
         "hazard", "awareness", "risk_a", "kin_status",
@@ -70,7 +71,7 @@ def event_columns(params: OracleParams = OracleParams()) -> list[str]:
 
 _STR_COLUMNS = {"run", "frame", "bucket", "kin_status"}
 _INT_COLUMNS = {"gt", "is_labelled", "n_humans", "m0_class", "ego_available",
-                "deadzone_any"}
+                "deadzone_any", "gaze_measured", "n_faces_measured"}
 
 
 def _person_planar_d(prim, camera, d_safe_m: float) -> np.ndarray:
@@ -165,6 +166,7 @@ def build_event_table(
                     "m0_risk": m0_risk, "m0_class": m0_class,
                     "proximity": 0.0, "gaze": 1.0, "x_offset": 0.0,
                     "approach": 0.5,
+                    "gaze_measured": -1, "n_faces_measured": 0,
                     "d_m": 2.0 * kin_params.d_safe_m, "bearing_rad": 0.0,
                     "closing_ms": 0.0, "tan_speed_ms": 0.0,
                     "t_cpa_s": 0.0, "d_min_m": 2.0 * kin_params.d_safe_m,
@@ -210,6 +212,16 @@ def build_event_table(
                     "gaze": float(extraction.features["gaze"][m0_idx]),
                     "x_offset": float(extraction.features["x_offset"][m0_idx]),
                     "approach": float(extraction.features["approach"][m0_idx]),
+                    "gaze_measured": (
+                        int(bool(extraction.gaze_measurable[m0_idx]))
+                        if extraction.gaze_measurable is not None
+                        else -1
+                    ),
+                    "n_faces_measured": (
+                        int(extraction.gaze_measurable.sum())
+                        if extraction.gaze_measurable is not None
+                        else -1
+                    ),
                     "d_m": k.d_m, "bearing_rad": k.bearing_rad,
                     "closing_ms": k.closing_ms, "tan_speed_ms": k.tan_speed_ms,
                     "t_cpa_s": k.t_cpa_s, "d_min_m": k.d_min_m,

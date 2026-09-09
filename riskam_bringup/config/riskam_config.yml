@@ -59,6 +59,22 @@
     # ── Synchroniser slop (seconds) ───────────────────────────────────────────
     sync_slop: 0.1
 
+    # ── Kinematic companion channel ───────────────────────────────────────────
+    # The awareness-modulated kinematic formulation (riskam/kinematics.py)
+    # runs alongside the weighted score on the same primitives and publishes
+    # on /riskam/risk_kinematic. The weighted scoring path is unaffected.
+    publish_kinematic: true
+    # Camera intrinsics source: leave empty to use the camera_info sibling of
+    # camera_topic; set camera_hfov_deg > 0 to use a pinhole fallback instead
+    # (e.g. 69.0 for RealSense D4xx, 58.0 for PrimeSense Xtion).
+    camera_info_topic: ""
+    camera_hfov_deg: 0.0
+    # Physical referents: reaction window (s), oblivious-human penalty, and
+    # robot footprint radius (m); d_safe is shared with the proximity score.
+    kinematic_tau_s: 2.0
+    kinematic_beta: 1.0
+    footprint_radius_m: 0.0
+
 /riskam_bagger:
   ros__parameters:
     # ── Output file ───────────────────────────────────────────────────────────
