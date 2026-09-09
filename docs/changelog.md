@@ -91,9 +91,19 @@ validation continues to describe the default output exactly.
   at typical occupancy (cs_robocup_2023) — ≤ 0.25% of the 90 ms frame
   budget. The field campaign predates this channel, like the gate; the
   addition leaves the weighted path and its timing claims unchanged.
-- Suite green (321 + 1 skipped); node change pending a smoke run on a
-  ROS 2 machine (colcon build + launch) — it cannot be executed on the
-  macOS development host.
+- Suite green (321 + 1 skipped). **Node smoke-tested end-to-end in a ROS 2
+  rolling container** via the new `scripts/smoke_test_node_macos.sh` +
+  `scripts/smoke_feed_frames.py` (siblings of the macOS extraction wrapper):
+  colcon build, node startup, 80 real RB_02 frames fed as live topics with
+  the run's true intrinsics — CameraInfo path confirmed (fx=530.2 received),
+  both formulations published (`risk_score` 0.300, `risk_kinematic` 0.014 on
+  the same scene — the structural difference in action: a distant person
+  accrues gaze-term risk in the weighted sum but ~0 kinematic risk without
+  collision geometry), diagnostics `kinematic_status: full` (velocity-fit
+  rung reached). Harness notes: the container needs the full setup.py
+  closure (the node imports `visualization` → `experiments`), `lap`
+  preinstalled (PEP 668 blocks the ultralytics auto-install), and numpy
+  pinned to the Debian-owned version.
 
 ## 2026-09-03 — SSM decomposition promoted into the standard report
 
