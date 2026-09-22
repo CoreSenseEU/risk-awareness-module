@@ -8,7 +8,7 @@ def parse_requirements(filename):
 
 setup(
     name="riskam",
-    version="0.0.1",
+    version="1.0.0",
     packages=find_packages(),
     # Copied requirements.txt
     install_requires=[

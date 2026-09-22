@@ -9,6 +9,19 @@ Item codes (T1.x / T2.x / T3.x) refer to the original improvement-plan roadmap.
 
 ---
 
+## 2026-09-21 — Publication labels for the metric-lab figures
+
+`scripts/metric_lab.py` figures are reproduced in D3.6, so the two shipped
+panels now carry the report's own terminology: the hazard violin says
+"Kinematic hazard" and "bracket k" (no internal "Direction A" / "class"
+names, no in-figure titles), and the reliability diagram plots only the two
+scalars the report discusses (`PLOT_MODELS`: m0c as "weighted scalar", a_cal
+as "kinematic scalar"). The b1_* diagnostics remain in `comparison.md` and
+`report_*.json`. Regenerated from the stored `scene_table.csv` + `fits/`
+(`evaluate --figures`); numbers unchanged.
+
+---
+
 ## 2026-09-02 — Awareness measurability gate (`riskam/ml/facegate.py`)
 
 Motivated by a cross-dataset finding: on privacy-defaced data (crowdbot_v2),

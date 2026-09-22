@@ -101,6 +101,14 @@ MODEL_COLORS = {
     "b1_kin": "#CC79A7",
 }
 
+# The reliability figure is reproduced in D3.6, so it plots only the two
+# scalars the report discusses, under the report's own names. The b1_*
+# diagnostics stay in comparison.md / report_*.json.
+PLOT_MODELS = {
+    "m0c": "weighted scalar",
+    "a_cal": "kinematic scalar",
+}
+
 
 # --------------------------------------------------------------------------- #
 # Shared data wiring (no inference)
@@ -642,10 +650,11 @@ def _make_figures(rows: list[dict], fits: dict) -> None:
         test_rows = rows
     y = np.array([r["gt"] for r in test_rows])
 
-    # 1 — reliability diagram (test bucket), one curve per fitted model.
+    # 1 - reliability diagram (test bucket), one curve per reported scalar
+    # (PLOT_MODELS); no in-figure title, the D3.6 caption carries it.
     fig, ax = plt.subplots(figsize=(5.2, 5.0))
     ax.plot([0, 1], [0, 1], ls="--", lw=1, color=muted, zorder=1)
-    for name in MODEL_FEATURES:
+    for name, pub_label in PLOT_MODELS.items():
         feats = fits[name].feature_names
         proba = fits[name].predict_proba(_feature_matrix(test_rows, feats))
         rel = reliability_table(y, proba)
@@ -659,14 +668,13 @@ def _make_figures(rows: list[dict], fits: dict) -> None:
         # legend (also the contrast relief for the palette WARN).
         ax.plot(
             xs, ys, marker="o", ms=5, lw=2, color=MODEL_COLORS[name],
-            zorder=2, label=f"{name} (ECE {rel['ece']:.3f})",
+            zorder=2, label=f"{pub_label} (ECE {rel['ece']:.3f})",
         )
     ax.legend(loc="upper left", frameon=False, labelcolor=ink)
     ax.set_xlim(0, 1.02)
     ax.set_ylim(0, 1.02)
     ax.set_xlabel("Mean predicted confidence (bin)")
     ax.set_ylabel("Empirical accuracy (bin)")
-    ax.set_title("Reliability — test split (diagonal = perfectly calibrated)")
     fig.tight_layout()
     fig.savefig(FIGURES_DIR / "reliability_test.png", dpi=150)
     plt.close(fig)
@@ -718,9 +726,9 @@ def _make_figures(rows: list[dict], fits: dict) -> None:
         parts[key].set_color(ink)
         parts[key].set_linewidth(1)
     ax.set_xticks(range(4))
-    ax.set_xticklabels([f"class {k}\n(n={len(g)})" for k, g in enumerate(groups)])
-    ax.set_ylabel("Kinematic hazard (Direction A channel)")
-    ax.set_title("Hazard distribution by annotated risk class")
+    # D3.6 terminology: the annotated ordinal classes are "risk brackets".
+    ax.set_xticklabels([f"bracket {k}\n(n={len(g)})" for k, g in enumerate(groups)])
+    ax.set_ylabel("Kinematic hazard")
     fig.tight_layout()
     fig.savefig(FIGURES_DIR / "hazard_by_class_violin.png", dpi=150)
     plt.close(fig)

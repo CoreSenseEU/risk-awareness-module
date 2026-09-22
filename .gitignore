@@ -4,7 +4,7 @@ __pycache__
 .venv/
 ml_models
 docs/proprietary
-.claude/settings.local.json
+.claude/
 
 # T3.3.7 feature cache — regenerated on demand; can grow large.
 feature_cache/
@@ -23,3 +23,5 @@ ml_datasets/*/gt/
 
 # Private notes not to be committed
 private/
+# Re-encoded upload copies of the demo videos (attach to the GitHub release)
+demo_videos/

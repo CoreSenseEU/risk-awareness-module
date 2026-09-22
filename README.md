@@ -195,6 +195,12 @@ Dataset download, extraction, and the full research workflow are documented in [
 
 ---
 
+## License
+
+The RiskAM code in this repository is released under the MIT License (see [`LICENSE`](LICENSE)). The perception stage depends on [Ultralytics YOLO11](https://github.com/ultralytics/ultralytics), which is licensed under AGPL-3.0; deployments that distribute the combined system should review the obligations that follow from that dependency.
+
+---
+
 ## Acknowledgment
 
 This work has received funding from the European Union's Horizon Europe research and innovation programme under grant agreement No. 101070254 CORESENSE. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the Horizon Europe programme. Neither the European Union nor the granting authority can be held responsible for them.
