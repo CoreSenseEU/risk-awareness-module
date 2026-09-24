@@ -25,3 +25,6 @@ ml_datasets/*/gt/
 private/
 # Re-encoded upload copies of the demo videos (attach to the GitHub release)
 demo_videos/
+
+# Model weights fetched on demand by ultralytics
+*.pt

@@ -9,6 +9,20 @@ Item codes (T1.x / T2.x / T3.x) refer to the original improvement-plan roadmap.
 
 ---
 
+## 2026-09-24 — Faces pixelated in the published demo videos
+
+The demo videos attached to release v1.0.0 are re-published with faces
+pixelated. The blur is applied **after** rendering, so the overlays and scores
+in the videos are the ones the module computed on the original frames; blurring
+before scoring would have tripped the measurability gate and shown the module
+scoring defaced input instead of its real behaviour. The CrowdBot video is
+unchanged, its source dataset being defaced already. No code, tag, or package
+version changes: the release assets were replaced in place. The RoboCup
+recordings themselves remain public data with their own data paper; the blur is
+caution on our side, not a correction of the dataset's release terms.
+
+---
+
 ## 2026-09-21 — Publication labels for the metric-lab figures
 
 `scripts/metric_lab.py` figures are reproduced in D3.6, so the two shipped
